@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { BrainCircuit, Mic, FileText, TrendingUp, Sun, Cloud, CloudRain, CloudSun, Loader2, ThermometerSun } from 'lucide-react';
+import { BrainCircuit, Mic, FileText, TrendingUp, Sun, Cloud, CloudRain, CloudSun, Loader2, ThermometerSun, Database, ClipboardCheck, ArrowRight } from 'lucide-react';
 import { db } from '../services/db';
 
-// Positive greetings pool
 const GREETINGS = [
   "朝气蓬勃的分拣员，加油！",
   "气昂昂的分拣员，太帅了！",
@@ -17,23 +16,36 @@ const GREETINGS = [
 
 interface WeatherData {
   temp: number;
-  code: number; // WMO Weather code
+  code: number;
 }
 
 export const HomePage: React.FC = () => {
-  const allStreets = db.getAll();
-  const mistakeCount = allStreets.filter(s => s.failureCount > 0).length;
-
+  const [streetCount, setStreetCount] = useState(0);
+  const [mistakeCount, setMistakeCount] = useState(0);
   const [greeting, setGreeting] = useState('');
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loadingWeather, setLoadingWeather] = useState(true);
+  const [storage, setStorage] = useState<{ usedMB: string, remainingGB: string } | null>(null);
 
   useEffect(() => {
-    // 1. Set Random Greeting
-    const randomIdx = Math.floor(Math.random() * GREETINGS.length);
-    setGreeting(GREETINGS[randomIdx]);
+    const initData = async () => {
+      // 1. Init DB & Migrate
+      await db.init();
+      
+      // 2. Load Data Async
+      const allStreets = await db.getAll();
+      setStreetCount(allStreets.length);
+      setMistakeCount(allStreets.filter(s => s.failureCount > 0).length);
+      
+      // 3. Storage
+      const stats = await db.getStorageStats();
+      setStorage(stats);
+    };
 
-    // 2. Fetch Weather (Open-Meteo Free API)
+    initData();
+    setGreeting(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
+
+    // Weather
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -50,24 +62,19 @@ export const HomePage: React.FC = () => {
               });
             }
           } catch (e) {
-            console.error("Weather fetch failed", e);
+            console.error("Weather error", e);
           } finally {
             setLoadingWeather(false);
           }
         },
-        (error) => {
-          console.warn("Geolocation denied", error);
-          setLoadingWeather(false);
-        }
+        () => setLoadingWeather(false)
       );
     } else {
       setLoadingWeather(false);
     }
   }, []);
 
-  // Helper to map WMO code to Icon/Text
   const getWeatherDisplay = (code: number) => {
-    // WMO Weather interpretation codes
     if (code === 0) return { icon: <Sun className="w-8 h-8 text-yellow-300" />, label: '晴朗' };
     if (code >= 1 && code <= 3) return { icon: <CloudSun className="w-8 h-8 text-white/90" />, label: '多云' };
     if (code >= 45 && code <= 48) return { icon: <Cloud className="w-8 h-8 text-gray-200" />, label: '雾' };
@@ -80,9 +87,8 @@ export const HomePage: React.FC = () => {
   return (
     <div className="space-y-6">
       
-      {/* Welcome Banner */}
+      {/* Banner */}
       <div className="bg-gradient-to-r from-brand-500 to-brand-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-        {/* Decorative Circles */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full -ml-10 -mb-10 blur-xl"></div>
 
@@ -94,12 +100,11 @@ export const HomePage: React.FC = () => {
               </h1>
               <div className="flex items-center space-x-2 text-sm bg-white/20 w-fit px-3 py-1 rounded-full backdrop-blur-sm">
                 <FileText className="w-3.5 h-3.5" />
-                <span>已收录 {allStreets.length} 条</span>
+                <span>已收录 {streetCount} 条</span>
               </div>
             </div>
 
-            {/* Weather Widget */}
-            <div className="flex flex-col items-end">
+            <div className="flex flex-col items-end space-y-2">
               {loadingWeather ? (
                 <Loader2 className="w-6 h-6 animate-spin opacity-50" />
               ) : weather && weatherInfo ? (
@@ -112,20 +117,25 @@ export const HomePage: React.FC = () => {
                    <span className="text-xs opacity-80">{weatherInfo.label}</span>
                 </div>
               ) : (
-                 // Fallback if no permission/error
                  <div className="opacity-50 flex flex-col items-center">
                     <Sun className="w-6 h-6 mb-1" />
                     <span className="text-xs">今天</span>
                  </div>
+              )}
+
+              {/* Enhanced Storage Stats */}
+              {storage && (
+                <div className="flex items-center space-x-1 text-[10px] bg-white/10 px-2 py-0.5 rounded backdrop-blur-md opacity-90 border border-white/10" title="数据库容量">
+                  <Database className="w-3 h-3" />
+                  <span>已用{storage.usedMB}M / 余{storage.remainingGB}G</span>
+                </div>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Actions */}
       <div className="grid grid-cols-1 gap-4">
-        {/* Module B: Search */}
         <Link to="/search" className="group relative overflow-hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all active:scale-95">
           <div className="flex items-center justify-between">
             <div>
@@ -138,7 +148,6 @@ export const HomePage: React.FC = () => {
           </div>
         </Link>
 
-        {/* Module A: Practice */}
         <Link to="/quiz" className="group relative overflow-hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all active:scale-95">
           <div className="flex items-center justify-between">
             <div>
@@ -150,9 +159,25 @@ export const HomePage: React.FC = () => {
             </div>
           </div>
         </Link>
+
+        {/* HP-A-1 Inspection Link Card */}
+        <Link to="/hpa1" className="group relative overflow-hidden bg-gradient-to-br from-purple-600 to-indigo-600 p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all active:scale-95">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+           <div className="relative z-10 flex items-center justify-between">
+            <div className="text-white">
+              <h2 className="text-xl font-bold mb-1 flex items-center">
+                HP-A-1 检查
+                <ArrowRight className="w-5 h-5 ml-1 opacity-80" />
+              </h2>
+              <p className="text-purple-100 text-sm">运单记录 · 异常拍照</p>
+            </div>
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-white backdrop-blur-sm group-hover:scale-110 transition-transform">
+              <ClipboardCheck className="w-6 h-6" />
+            </div>
+          </div>
+        </Link>
       </div>
 
-      {/* Stats / Mistakes */}
       {mistakeCount > 0 && (
         <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 flex items-center justify-between animate-fade-in-up">
           <div className="flex items-center space-x-3">

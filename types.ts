@@ -17,3 +17,12 @@ export interface QuizResult {
   correct: number;
   wrongStreets: StreetRecord[];
 }
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  isDone: boolean;
+  date: string; // YYYY-MM-DD
+  createdAt: number;
+  imageUrl?: string; // Base64 compressed image
+}

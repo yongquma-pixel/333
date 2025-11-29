@@ -13,7 +13,9 @@
     "react-dom": "^19.2.0",
     "lucide-react": "^0.555.0",
     "react-router-dom": "^7.9.6",
-    "xlsx": "latest"
+    "xlsx": "latest",
+    "pinyin-pro": "3.18.2",
+    "idb": "^8.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

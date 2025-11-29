@@ -1,8 +1,25 @@
-import { StreetRecord } from '../types';
+import { StreetRecord, TodoItem } from '../types';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
+// @ts-ignore
+import { pinyin } from 'pinyin-pro';
 
-const STORAGE_KEY = 'courier_app_data_v1';
+const DB_NAME = 'courier_assistant_db';
+const DB_VERSION = 1;
+const OLD_STORAGE_KEY = 'courier_app_data_v1';
+const OLD_TODO_KEY = 'courier_app_todos_v1';
 
-// Seed data to make the app usable immediately
+interface CourierDB extends DBSchema {
+  streets: {
+    key: string;
+    value: StreetRecord;
+  };
+  todos: {
+    key: string;
+    value: TodoItem;
+  };
+}
+
+// Seed data
 const SEED_DATA: StreetRecord[] = [
   { id: '1', streetName: '文三路', routeArea: '西湖 1 区', pinyin: 'wensanlu', failureCount: 0, createdAt: Date.now() },
   { id: '2', streetName: '文一西路', routeArea: '余杭 5 区', pinyin: 'wenyixilu', failureCount: 0, createdAt: Date.now() },
@@ -14,21 +31,18 @@ const SEED_DATA: StreetRecord[] = [
   { id: '8', streetName: '江南大道', routeArea: '滨江 1 区', pinyin: 'jiangnandadao', failureCount: 0, createdAt: Date.now() },
 ];
 
-// --- 1. Enhanced Homophone Mapping for Address Correction ---
+// --- HOMOPHONE & FUZZY LOGIC (Kept same) ---
 const HOMOPHONES: Record<string, string> = {
-  // Numbers
   '幺': '一', '壹': '一', '妖': '一',
   '两': '二', '贰': '二',
   '叁': '三', '山': '三', '散': '三',
   '肆': '四', '司': '四', '死': '四',
   '伍': '五', '舞': '五',
-  '陆': '路', '溜': '六', // '陆' usually maps to 'Road' in addresses, but 'Liù' is 6. Context hard, prioritizing Road.
+  '陆': '路', '溜': '六',
   '柒': '七', '妻': '七', '戚': '七',
   '捌': '八', '发': '八', '爸': '八',
   '玖': '九', '酒': '九', '久': '九',
   '拾': '十', '石': '十', '实': '十', '时': '十',
-  
-  // Address Suffixes & Common Typos
   '路': '路', '鹭': '路', '露': '路', '录': '路', '鲁': '路', '鹿': '路',
   '街': '街', '阶': '街', '接': '街', '杰': '街', '洁': '街', '结': '街', '节': '街',
   '巷': '巷', '向': '巷', '像': '巷', '项': '巷', '相': '巷', '象': '巷',
@@ -40,316 +54,364 @@ const HOMOPHONES: Record<string, string> = {
   '栋': '栋', '动': '栋', '洞': '栋',
   '幢': '幢', '撞': '幢', '壮': '幢', '装': '幢',
   '室': '室', '是': '室', '士': '室', '市': '室',
-  
-  // Directions
   '冬': '东', 
   '难': '南', '男': '南',
   '吸': '西', '希': '西', '息': '西',
   '杯': '北', '背': '北',
 };
 
-// --- 2. Levenshtein Distance for Fuzzy Matching ---
 function levenshtein(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
-
   const matrix = [];
-
-  // increment along the first column of each row
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-
-  // increment each column in the first row
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-
-  // Fill in the rest of the matrix
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
         matrix[i][j] = matrix[i - 1][j - 1];
       } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          Math.min(
-            matrix[i][j - 1] + 1, // insertion
-            matrix[i - 1][j] + 1 // deletion
-          )
-        );
+        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
       }
     }
   }
-
   return matrix[b.length][a.length];
 }
 
-// Helper: Normalize text by fixing homophones and removing noise
 function normalizeText(text: string): string {
-  // Replace standard punctuation with space to serve as natural separator
   let res = text.replace(/[，。、？！\s\n\t]+/g, ' '); 
-  
   const chars = res.split('');
-  // Map homophones but preserve spaces
   const fixedChars = chars.map(c => HOMOPHONES[c] || c);
   return fixedChars.join('');
 }
 
+function getRawPinyin(text: string): string {
+  try {
+    return pinyin(text, { toneType: 'none', type: 'string' }).replace(/\s/g, '');
+  } catch (e) {
+    return '';
+  }
+}
+
+// --- DB INSTANCE ---
+let dbPromise: Promise<IDBPDatabase<CourierDB>>;
+
+function getDB() {
+  if (!dbPromise) {
+    dbPromise = openDB<CourierDB>(DB_NAME, DB_VERSION, {
+      upgrade(db, oldVersion, newVersion, transaction) {
+        if (!db.objectStoreNames.contains('streets')) {
+          db.createObjectStore('streets', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('todos')) {
+          db.createObjectStore('todos', { keyPath: 'id' });
+        }
+      },
+    });
+  }
+  return dbPromise;
+}
+
+// --- API ---
 export const db = {
-  getAll: (): StreetRecord[] => {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (!data) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_DATA));
-      return SEED_DATA;
+  // Initialization & Migration
+  init: async () => {
+    const database = await getDB();
+    
+    // Check if we need to seed or migrate
+    const count = await database.count('streets');
+    
+    // 1. Migrate from LocalStorage if exists and DB is empty
+    const oldData = localStorage.getItem(OLD_STORAGE_KEY);
+    if (oldData && count === 0) {
+      console.log("Migrating Streets from LocalStorage to IndexedDB...");
+      const parsed = JSON.parse(oldData) as StreetRecord[];
+      const tx = database.transaction('streets', 'readwrite');
+      for (const item of parsed) {
+        await tx.store.put(item);
+      }
+      await tx.done;
+      localStorage.removeItem(OLD_STORAGE_KEY); // Cleanup
+    } else if (count === 0) {
+      // 2. Seed if empty and no old data
+      const tx = database.transaction('streets', 'readwrite');
+      for (const item of SEED_DATA) {
+        await tx.store.put(item);
+      }
+      await tx.done;
     }
-    return JSON.parse(data);
+
+    // Migrate Todos
+    const oldTodos = localStorage.getItem(OLD_TODO_KEY);
+    const todoCount = await database.count('todos');
+    if (oldTodos && todoCount === 0) {
+      console.log("Migrating Todos...");
+      const parsed = JSON.parse(oldTodos) as TodoItem[];
+      const tx = database.transaction('todos', 'readwrite');
+      for (const item of parsed) {
+        await tx.store.put(item);
+      }
+      await tx.done;
+      localStorage.removeItem(OLD_TODO_KEY);
+    }
   },
 
-  saveAll: (data: StreetRecord[]) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  // --- STREETS CRUD ---
+  getAll: async (): Promise<StreetRecord[]> => {
+    const database = await getDB();
+    return database.getAll('streets');
   },
 
-  add: (street: Omit<StreetRecord, 'id' | 'createdAt' | 'failureCount'>) => {
-    const streets = db.getAll();
+  add: async (street: Omit<StreetRecord, 'id' | 'createdAt' | 'failureCount'>) => {
+    const database = await getDB();
     const newStreet: StreetRecord = {
       ...street,
       id: Date.now().toString(),
       failureCount: 0,
       createdAt: Date.now(),
     };
-    streets.unshift(newStreet);
-    db.saveAll(streets);
+    await database.put('streets', newStreet);
   },
 
-  addMany: (items: Omit<StreetRecord, 'id' | 'createdAt' | 'failureCount'>[]) => {
-    const streets = db.getAll();
-    const existingNames = new Set(streets.map(s => s.streetName));
+  addMany: async (items: Omit<StreetRecord, 'id' | 'createdAt' | 'failureCount'>[]) => {
+    const database = await getDB();
+    const all = await database.getAll('streets');
+    const existingNames = new Set(all.map(s => s.streetName));
     
-    let addedCount = 0;
     const timestamp = Date.now();
+    const tx = database.transaction('streets', 'readwrite');
+    let count = 0;
     
-    const newRecords = items
-      .filter(item => item.streetName && item.routeArea && !existingNames.has(item.streetName))
-      .map((item, index) => ({
-        ...item,
-        id: `${timestamp}-${index}`, // Unique ID
-        failureCount: 0,
-        createdAt: timestamp
-      }));
-      
-    if (newRecords.length > 0) {
-      const updated = [...newRecords, ...streets];
-      db.saveAll(updated);
-      addedCount = newRecords.length;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.streetName && item.routeArea && !existingNames.has(item.streetName)) {
+        await tx.store.put({
+          ...item,
+          id: `${timestamp}-${i}`,
+          failureCount: 0,
+          createdAt: timestamp
+        });
+        count++;
+      }
     }
-    return addedCount;
+    await tx.done;
+    return count;
   },
 
-  update: (id: string, updates: Partial<StreetRecord>) => {
-    const streets = db.getAll();
-    const index = streets.findIndex(s => s.id === id);
-    if (index !== -1) {
-      streets[index] = { ...streets[index], ...updates };
-      db.saveAll(streets);
+  update: async (id: string, updates: Partial<StreetRecord>) => {
+    const database = await getDB();
+    const item = await database.get('streets', id);
+    if (item) {
+      await database.put('streets', { ...item, ...updates });
     }
   },
 
-  delete: (id: string) => {
-    const streets = db.getAll();
-    const filtered = streets.filter(s => s.id !== id);
-    db.saveAll(filtered);
+  delete: async (id: string) => {
+    const database = await getDB();
+    await database.delete('streets', id);
   },
 
-  // Logic for Quiz Generation
-  generateQuiz: (count: number = 5): { question: StreetRecord, options: string[] }[] => {
-    const streets = db.getAll();
-    if (streets.length < 4) return []; // Not enough data
+  // --- SEARCH & QUIZ ---
+  generateQuiz: async (count: number = 5): Promise<{ question: StreetRecord, options: string[] }[]> => {
+    const streets = await db.getAll();
+    if (streets.length < 4) return [];
 
-    // Shuffle and pick N
     const shuffled = [...streets].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, count);
-
-    // Get all unique areas for options
     const allAreas = Array.from(new Set(streets.map(s => s.routeArea)));
 
     return selected.map(q => {
-      // Correct answer
       const correct = q.routeArea;
-      // Filter out correct answer from pool
       const wrongPool = allAreas.filter(a => a !== correct);
-      
-      // Pick 3 wrong answers. If not enough unique areas, duplicate/pad (edge case handling)
       let distractors: string[] = [];
       if (wrongPool.length >= 3) {
          distractors = wrongPool.sort(() => 0.5 - Math.random()).slice(0, 3);
       } else {
-         // Fallback if user hasn't entered enough unique areas yet
          distractors = [...wrongPool, "未知区域A", "未知区域B"].slice(0, 3);
       }
-
-      const options = [...distractors, correct].sort(() => 0.5 - Math.random());
-      
       return {
         question: q,
-        options
+        options: [...distractors, correct].sort(() => 0.5 - Math.random())
       };
     });
   },
-  
-  // Enhanced Search (Single Mode) with Weighted Scoring
-  search: (query: string): StreetRecord[] => {
+
+  search: async (query: string): Promise<StreetRecord[]> => {
     if (!query) return [];
+    const streets = await db.getAll();
     const rawQ = query.toLowerCase().trim();
-    const normalizedQ = normalizeText(rawQ).replace(/\s/g, ''); // Remove spaces for single search matching
-    
-    const streets = db.getAll();
-    
-    // Scoring System
-    // Exact Match: 100
-    // Pinyin Match: 90
-    // Normalized Contain: 80
-    // Fuzzy Match: 70 - (Distance * 10)
-    
+    const normalizedQ = normalizeText(rawQ).replace(/\s/g, '');
+    const pinyinQ = getRawPinyin(rawQ);
+
     const scored = streets.map(s => {
       let score = 0;
       const sName = s.streetName;
-      const sPinyin = s.pinyin?.toLowerCase() || '';
+      const sPinyin = s.pinyin?.toLowerCase() || getRawPinyin(sName);
 
       if (sName === rawQ) score = 100;
-      else if (sPinyin === rawQ) score = 95;
+      else if (sPinyin === pinyinQ && pinyinQ.length > 2) score = 95; // Pinyin exact match
       else if (sName.includes(rawQ)) score = 90;
-      else if (sPinyin.includes(rawQ)) score = 85;
+      else if (sPinyin.includes(pinyinQ) && pinyinQ.length > 2) score = 85;
       else {
-        // Normalized check
         const normName = normalizeText(sName).replace(/\s/g, '');
         if (normName.includes(normalizedQ)) score = 80;
         else {
-          // Fuzzy check
-          const dist = levenshtein(normalizedQ, normName);
-          const allowedErrors = sName.length > 3 ? 2 : 1;
-          if (dist <= allowedErrors) {
-            score = 70 - (dist * 10);
-          }
+          const charDist = levenshtein(normalizedQ, normName);
+          const pinyinDist = levenshtein(pinyinQ, sPinyin);
+          
+          // Mixed distance score
+          if (charDist <= 1) score = 75;
+          else if (pinyinDist <= 1 && pinyinQ.length > 3) score = 72; // Close pinyin
+          else if (charDist <= 2) score = 60;
         }
       }
       return { street: s, score };
     });
 
     return scored
-      .filter(item => item.score > 0)
+      .filter(item => item.score > 60)
       .sort((a, b) => b.score - a.score)
       .map(item => item.street);
   },
 
-  // Advanced Batch Recognition with Sliding Window Fuzzy Matching
-  batchRecognize: (text: string): { original: string, match: StreetRecord | null }[] => {
-    const streets = db.getAll();
+  // Optimized for async: Fetch once, then process
+  batchRecognize: async (text: string): Promise<{ original: string, match: StreetRecord | null }[]> => {
+    const streets = await db.getAll();
     if (streets.length === 0) return [{ original: text, match: null }];
 
-    const normalizedText = normalizeText(text); // e.g. "文三陆 文一西路"
+    const normalizedText = normalizeText(text);
+    const textPinyin = getRawPinyin(normalizedText);
     const results: { original: string, match: StreetRecord | null }[] = [];
     
-    // Calculate window range based on DB data
     const lens = streets.map(s => s.streetName.length);
-    const minLen = Math.max(2, Math.min(...lens)); // Minimal reasonable length for a street name
+    const minLen = Math.max(2, Math.min(...lens));
     const maxLen = Math.max(...lens);
 
     let cursor = 0;
+    // Map of street pinyins for fast lookup could be optimized here, but array iteration is fine for <5000
+    
     while (cursor < normalizedText.length) {
-      // 1. Skip separators (like spaces introduced by normalization)
-      // We treat them as non-matches or merge them into previous unknown text
       if (/\s/.test(normalizedText[cursor])) {
-        const char = normalizedText[cursor];
+        // Handle spaces
         const last = results[results.length - 1];
-        if (last && !last.match) {
-           last.original += char;
-        } else {
-           // Only add if it's not just a space at start
-           if (results.length > 0 || char.trim() !== '') {
-             results.push({ original: char, match: null });
-           }
-        }
+        if (last && !last.match) last.original += normalizedText[cursor];
+        else results.push({ original: normalizedText[cursor], match: null });
         cursor++;
         continue;
       }
 
       let bestMatch: StreetRecord | null = null;
-      let bestDist = 100; // Arbitrary high distance
+      let bestScore = 0;
       let bestLen = 0;
 
-      // 2. Sliding Window: Try lengths from Max down to Min
-      // We scan allowed window sizes to find the "Best" match starting at current cursor
       const maxWindow = Math.min(maxLen + 1, normalizedText.length - cursor);
       
       for (let w = maxWindow; w >= minLen; w--) {
         const chunk = normalizedText.substr(cursor, w);
+        const chunkPinyin = getRawPinyin(chunk);
         
         for (const street of streets) {
-          // Optimization: Skip if length difference is too big to be a match
-          if (Math.abs(street.streetName.length - w) > 2) continue;
+           if (Math.abs(street.streetName.length - w) > 2) continue;
 
-          const dist = levenshtein(chunk, street.streetName);
-          
-          // Strictness thresholds based on street length
-          let threshold = 0;
-          if (street.streetName.length >= 5) threshold = 2; // Long names tolerate 2 errors
-          else if (street.streetName.length >= 3) threshold = 1; // Med names tolerate 1 error
-          else threshold = 0; // Short names (2 chars) must match exactly (after normalization)
+           const sName = street.streetName;
+           const sPinyin = street.pinyin || getRawPinyin(sName);
 
-          if (dist <= threshold) {
-             // We found a valid candidate. Is it better than the current best?
-             // Priority 1: Lower Distance (Closer match)
-             // Priority 2: Longer Length (More specific match)
-             
-             if (dist < bestDist) {
-               bestMatch = street;
-               bestDist = dist;
-               bestLen = w;
-             } else if (dist === bestDist) {
-               // Tie-breaker: Prefer the match that corresponds to a longer street name
-               // e.g. "文一西" matches "文一西路" (dist 1) vs "文一" (dist 1). Prefer "文一西路".
-               if (street.streetName.length > (bestMatch?.streetName.length || 0)) {
-                 bestMatch = street;
-                 bestLen = w;
-               }
-             }
-          }
+           const charDist = levenshtein(chunk, sName);
+           const pinyinDist = levenshtein(chunkPinyin, sPinyin);
+
+           let score = 0;
+           // Strict scoring for batch
+           if (charDist === 0) score = 100;
+           else if (pinyinDist === 0) score = 95;
+           else if (charDist === 1 && sName.length >= 3) score = 80;
+           else if (pinyinDist === 1 && sName.length >= 3) score = 75;
+
+           if (score > bestScore) {
+             bestMatch = street;
+             bestScore = score;
+             bestLen = w;
+           }
         }
-        
-        // Optimization: If we found a perfect, long match, stop looking at smaller windows?
-        // Actually, greedy match from Max to Min is usually safer for compound words.
-        // But here we iterate Max to Min. If we find a dist=0 match at length W, 
-        // a shorter length W-1 can't be "better" unless we prefer short words. 
-        // We usually prefer long words (Maximal Munch).
-        // However, "文一西路" vs "文一路". If input is "文一西路", w=4 matches exact.
-        // If we break early, we keep that. Correct.
-        if (bestDist === 0 && bestMatch && bestLen === w && w === streetLength(bestMatch)) {
-           // We found an exact match of the full street name. Secure it.
-           break; 
-        }
+        if (bestScore >= 95) break; // Optimization: Stop if exact match found
       }
-      
-      function streetLength(s: StreetRecord) { return s.streetName.length; }
 
-      if (bestMatch) {
-        // Found a match!
+      if (bestMatch && bestScore >= 75) {
         results.push({ original: normalizedText.substr(cursor, bestLen), match: bestMatch });
         cursor += bestLen;
       } else {
-        // No match found at this cursor.
-        // Treat current char as unknown.
         const char = normalizedText[cursor];
         const last = results[results.length - 1];
-        if (last && !last.match) {
-           last.original += char;
-        } else {
-           results.push({ original: char, match: null });
-        }
+        if (last && !last.match) last.original += char;
+        else results.push({ original: char, match: null });
         cursor++;
       }
     }
-
     return results;
+  },
+
+  // --- TODOS CRUD ---
+  getAllTodos: async (): Promise<TodoItem[]> => {
+    const database = await getDB();
+    return database.getAll('todos');
+  },
+
+  addTodo: async (content: string, imageUrl?: string) => {
+    const database = await getDB();
+    const newTodo: TodoItem = {
+      id: Date.now().toString(),
+      content,
+      isDone: false,
+      date: new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+      createdAt: Date.now(),
+      imageUrl
+    };
+    await database.put('todos', newTodo);
+  },
+
+  toggleTodo: async (id: string) => {
+    const database = await getDB();
+    const item = await database.get('todos', id);
+    if (item) {
+      await database.put('todos', { ...item, isDone: !item.isDone });
+    }
+  },
+
+  deleteTodo: async (id: string) => {
+    const database = await getDB();
+    await database.delete('todos', id);
+  },
+
+  cleanupOldTodos: async () => {
+    const database = await getDB();
+    const all = await database.getAll('todos');
+    const now = Date.now();
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    const tx = database.transaction('todos', 'readwrite');
+    
+    for (const t of all) {
+      if (t.isDone && (now - t.createdAt) > SEVEN_DAYS) {
+        await tx.store.delete(t.id);
+      }
+    }
+    await tx.done;
+  },
+
+  // --- STORAGE STATS (New API) ---
+  getStorageStats: async () => {
+    if (navigator.storage && navigator.storage.estimate) {
+      const estimate = await navigator.storage.estimate();
+      const used = estimate.usage || 0;
+      const quota = estimate.quota || 0;
+      const remaining = quota - used;
+      
+      return {
+        usedMB: (used / 1024 / 1024).toFixed(2),
+        remainingGB: (remaining / 1024 / 1024 / 1024).toFixed(2),
+        percentUsed: Math.round((used / quota) * 100) || 0
+      };
+    } else {
+      // Fallback
+      return { usedMB: "0", remainingGB: "Unknown", percentUsed: 0 };
+    }
   }
 };
