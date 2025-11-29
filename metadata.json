@@ -1,0 +1,7 @@
+{
+  "name": "路区通 - 快递员助手",
+  "description": "快递路区记忆练习与现场语音查询系统",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
