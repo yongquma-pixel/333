@@ -1,180 +1,231 @@
-import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ClipboardCheck, Mic, Camera, Save, ArrowLeft, X, Image as ImageIcon } from 'lucide-react';
+
+import React, { useState, useEffect } from 'react';
+import { Box, Mic, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Plus, Calendar, Check, X, Info, Circle, CircleDashed } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { db } from '../services/db';
+import { HPA1Item } from '../types';
 
 export const HPA1Page: React.FC = () => {
-  const navigate = useNavigate();
+  const [items, setItems] = useState<HPA1Item[]>([]);
   const [trackingNum, setTrackingNum] = useState('');
-  const [remarks, setRemarks] = useState('');
-  const [image, setImage] = useState<string | null>(null);
+  const [arrivalDate, setArrivalDate] = useState(new Date().toISOString().slice(0, 10));
   const [isListening, setIsListening] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [confirmCompleteId, setConfirmCompleteId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    loadItems();
+  }, []);
+
+  const loadItems = async () => {
+    await db.init();
+    const all = await db.getAllHPA1();
+    // Filter only pending items and sort by arrival date
+    const pending = all.filter(item => item.status === 'pending');
+    pending.sort((a, b) => a.arrivalDate.localeCompare(b.arrivalDate));
+    setItems(pending);
+  };
 
   const startVoice = () => {
     if ('webkitSpeechRecognition' in window) {
       const recognition = new (window as any).webkitSpeechRecognition();
-      recognition.lang = 'zh-CN'; 
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
+      recognition.lang = 'zh-CN';
       recognition.onstart = () => setIsListening(true);
       recognition.onend = () => setIsListening(false);
       recognition.onresult = (e: any) => {
-        const text = e.results[0][0].transcript;
-        // Simple heuristic: if text contains numbers, treat it as tracking number, else remarks
-        // Or if tracking number is empty, fill it first.
-        if (!trackingNum) {
-            // Try to strip punctuation for tracking number
-            const clean = text.replace(/[，。、？]/g, '');
-            setTrackingNum(clean);
-        } else {
-            setRemarks(prev => prev + (prev ? ' ' : '') + text);
-        }
+        const raw = e.results[0][0].transcript;
+        // Filter only alphanumeric characters
+        const clean = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        setTrackingNum(clean);
       };
       recognition.start();
     } else {
-      alert("您的设备不支持语音识别");
+      alert("设备不支持语音识别");
     }
   };
 
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-         const img = new Image();
-         img.src = evt.target?.result as string;
-         img.onload = () => {
-           const canvas = document.createElement('canvas');
-           const MAX = 800;
-           let w = img.width, h = img.height;
-           if (w > h && w > MAX) { h *= MAX/w; w = MAX; }
-           else if (h > MAX) { w *= MAX/h; h = MAX; }
-           canvas.width = w; canvas.height = h;
-           canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
-           setImage(canvas.toDataURL('image/jpeg', 0.7));
-         };
-      };
-      reader.readAsDataURL(file);
+  const handleAdd = async () => {
+    if (!trackingNum) return;
+    await db.addHPA1(trackingNum, arrivalDate);
+    setTrackingNum('');
+    loadItems();
+  };
+
+  const initiateCompletion = (id: string) => {
+    setConfirmCompleteId(id);
+  };
+
+  const executeCompletion = async () => {
+    if (confirmCompleteId) {
+      await db.completeHPA1(confirmCompleteId);
+      setConfirmCompleteId(null);
+      loadItems();
     }
   };
 
-  const handleSave = async () => {
-    if (!trackingNum.trim() && !image) {
-      alert("请至少输入运单号或拍摄照片");
-      return;
-    }
-    
-    // Format: 【HP-A-1】 运单号: XXXXX 备注: YYYYY
-    let content = `【HP-A-1检查】`;
-    if (trackingNum) content += ` 运单号:${trackingNum}`;
-    if (remarks) content += ` 备注:${remarks}`;
+  const handleDateChange = async (id: string, newDate: string) => {
+    if (!newDate) return;
+    await db.updateHPA1(id, { arrivalDate: newDate });
+    loadItems();
+  };
 
-    await db.addTodo(content, image || undefined);
-    
-    // Provide feedback
-    const choice = window.confirm("记录已保存到待办！\n\n要继续录入下一条吗？");
-    if (choice) {
-      setTrackingNum('');
-      setRemarks('');
-      setImage(null);
-    } else {
-      navigate('/todo');
-    }
+  const getDaysRetained = (dateStr: string) => {
+    const start = new Date(dateStr).setHours(0,0,0,0);
+    const now = new Date().setHours(0,0,0,0);
+    return Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  };
+
+  const getStatusColor = (days: number) => {
+    if (days >= 7) return 'text-red-600 bg-red-50 border-red-200';
+    if (days >= 3) return 'text-orange-600 bg-orange-50 border-orange-200';
+    return 'text-green-600 bg-green-50 border-green-200';
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
-       <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageFile} />
-       
-       {/* Header */}
-       <div className="bg-white p-4 shadow-sm flex items-center space-x-3 sticky top-0 z-10">
-         <button onClick={() => navigate('/')} className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full">
-           <ArrowLeft className="w-6 h-6" />
-         </button>
-         <h1 className="text-xl font-bold text-gray-800 flex items-center">
-            <ClipboardCheck className="w-6 h-6 text-purple-600 mr-2" />
-            HP-A-1 检查
-         </h1>
-       </div>
+    <div className="flex flex-col h-full bg-gray-50">
+      {/* Header */}
+      <div className="bg-white px-4 py-3 shadow-sm border-b border-gray-100 flex items-center justify-between z-10 sticky top-0">
+        <div className="flex items-center space-x-3">
+           <Link to="/" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"><ArrowLeft className="w-5 h-5" /></Link>
+           <h1 className="text-lg font-bold text-gray-800">滞留件管理</h1>
+        </div>
+        <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs font-bold flex items-center">
+           <Box className="w-3 h-3 mr-1" />
+           {items.length} 待处理
+        </div>
+      </div>
 
-       <div className="flex-1 p-4 space-y-6 overflow-y-auto">
-         
-         {/* Tracking Number Input */}
-         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-           <label className="block text-sm font-bold text-gray-500 mb-2 uppercase tracking-wide">运单号 / Tracking No.</label>
-           <div className="relative">
-             <input 
-               type="text" 
-               value={trackingNum}
-               onChange={e => setTrackingNum(e.target.value)}
-               placeholder="输入或语音念出单号..."
-               className="w-full text-2xl font-mono font-bold text-gray-800 border-b-2 border-gray-200 focus:border-purple-500 outline-none py-2 bg-transparent"
-             />
-             {trackingNum && (
-               <button onClick={() => setTrackingNum('')} className="absolute right-0 top-3 text-gray-300 hover:text-gray-500">
-                 <X className="w-5 h-5" />
-               </button>
-             )}
+      <div className="flex-1 overflow-y-auto p-4 pb-20 space-y-4">
+        
+        {/* Input Area */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+           <div className="flex items-center justify-between mb-3">
+             <div className="flex items-center space-x-2 text-sm font-bold text-gray-700">
+               <Plus className="w-4 h-4 text-purple-600" />
+               <span>录入新件</span>
+             </div>
+             {/* Global Date Picker for Entry */}
+             <div className="flex items-center bg-gray-50 rounded-lg px-2 py-1 border border-gray-200 group focus-within:ring-2 focus-within:ring-purple-100">
+                <Calendar className="w-3 h-3 text-gray-400 mr-2" />
+                <input 
+                  type="date" 
+                  value={arrivalDate}
+                  onChange={e => setArrivalDate(e.target.value)}
+                  className="bg-transparent text-xs font-medium text-gray-600 outline-none w-24"
+                />
+             </div>
            </div>
-         </div>
-
-         {/* Image Area */}
-         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-            <label className="block text-sm font-bold text-gray-500 mb-3 uppercase tracking-wide">现场拍照 / Photo</label>
-            {image ? (
-              <div className="relative rounded-xl overflow-hidden border border-gray-200">
-                <img src={image} alt="Evidence" className="w-full h-48 object-cover" />
+           
+           <div className="flex space-x-2">
+             <div className="flex-1 relative">
+                <input 
+                  type="text" 
+                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 font-mono text-base font-bold uppercase focus:border-purple-500 focus:ring-1 focus:ring-purple-200 outline-none transition-all"
+                  placeholder="单号 (如 SF123)"
+                  value={trackingNum}
+                  onChange={e => setTrackingNum(e.target.value.toUpperCase())}
+                  onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                />
                 <button 
-                  onClick={() => setImage(null)}
-                  className="absolute top-2 right-2 bg-black/60 text-white p-1.5 rounded-full backdrop-blur-sm"
+                  onClick={startVoice} 
+                  disabled={isListening}
+                  className={`absolute right-1 top-1 bottom-1 px-3 rounded-md flex items-center transition-colors ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-gray-400 hover:text-purple-600'}`}
                 >
-                  <X className="w-5 h-5" />
+                  <Mic className="w-4 h-4" />
+                </button>
+             </div>
+             <button onClick={handleAdd} disabled={!trackingNum} className="bg-purple-600 text-white px-4 rounded-lg font-bold shadow-md hover:bg-purple-700 disabled:opacity-50 disabled:shadow-none">
+               添加
+             </button>
+           </div>
+        </div>
+
+        {/* List Area */}
+        <div className="space-y-3">
+          {items.map(item => {
+            const days = getDaysRetained(item.arrivalDate);
+            
+            return (
+              <div 
+                key={item.id} 
+                className={`bg-white rounded-xl p-4 shadow-sm border flex items-center justify-between transition-all border-gray-100`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2 mb-1">
+                    <span className={`font-mono font-bold text-lg truncate text-gray-800`}>
+                      {item.trackingNumber}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${getStatusColor(days)}`}>
+                      滞留 {days} 天
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center text-xs text-gray-400 space-x-4">
+                    <div className="flex items-center hover:bg-gray-100 rounded px-1 -ml-1 py-0.5 transition-colors cursor-pointer group relative">
+                      <Calendar className="w-3 h-3 mr-1" />
+                      <span className="group-hover:text-purple-600 transition-colors">{item.arrivalDate}</span>
+                      {/* Inline Date Edit */}
+                      <input 
+                        type="date" 
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                        value={item.arrivalDate}
+                        onChange={(e) => handleDateChange(item.id, e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side Action */}
+                <div className="ml-4 flex-shrink-0">
+                    <button 
+                      onClick={() => initiateCompletion(item.id)}
+                      className="w-10 h-10 rounded-full border-2 border-gray-300 flex items-center justify-center text-transparent hover:border-green-500 hover:text-green-500 hover:bg-green-50 transition-all active:scale-95"
+                    >
+                      <Check className="w-6 h-6" />
+                    </button>
+                </div>
+              </div>
+            );
+          })}
+          
+          {items.length === 0 && (
+             <div className="text-center py-10 text-gray-400">
+               <Box className="w-12 h-12 mx-auto mb-2 opacity-20" />
+               <p className="text-sm">暂无滞留快件</p>
+             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Confirmation Modal */}
+      {confirmCompleteId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-slide-up">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-6 h-6 text-green-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">确认支付关税？</h3>
+              <p className="text-sm text-gray-500 mb-6">
+                该运单将标记为已完结并归档，不再计算滞留费用。
+              </p>
+              <div className="flex gap-3 w-full">
+                <button 
+                  onClick={() => setConfirmCompleteId(null)} 
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={executeCompletion} 
+                  className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold shadow-lg hover:bg-green-700"
+                >
+                  确认完结
                 </button>
               </div>
-            ) : (
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full h-32 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:bg-gray-50 hover:border-purple-300 transition-colors"
-              >
-                <Camera className="w-8 h-8 mb-2" />
-                <span>点击拍照 / 选取照片</span>
-              </button>
-            )}
-         </div>
-
-         {/* Remarks Input */}
-         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-            <label className="block text-sm font-bold text-gray-500 mb-2 uppercase tracking-wide">异常描述 / Remarks</label>
-            <textarea 
-              rows={3}
-              value={remarks}
-              onChange={e => setRemarks(e.target.value)}
-              placeholder="如有破损或特殊情况，请在此补充..."
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-purple-500 outline-none"
-            />
-         </div>
-
-         {/* Action Bar */}
-         <div className="grid grid-cols-2 gap-4">
-            <button 
-              onClick={startVoice}
-              className={`p-4 rounded-xl flex flex-col items-center justify-center shadow-sm transition-all active:scale-95 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              <Mic className="w-8 h-8 mb-1" />
-              <span className="text-xs font-bold">{isListening ? '正在听...' : '语音输入'}</span>
-            </button>
-
-            <button 
-              onClick={handleSave}
-              className="bg-purple-600 text-white p-4 rounded-xl flex flex-col items-center justify-center shadow-md hover:bg-purple-700 active:scale-95 transition-all"
-            >
-              <Save className="w-8 h-8 mb-1" />
-              <span className="text-xs font-bold">提交待办</span>
-            </button>
-         </div>
-       </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
