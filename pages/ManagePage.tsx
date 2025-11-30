@@ -100,9 +100,13 @@ export const ManagePage: React.FC = () => {
           routeArea: row['所属路区'],
           pinyin: row['拼音'] || ''
         })).filter(r => r.streetName && r.routeArea);
-        if (records.length === 0) return alert("格式错误");
-        const count = await db.addMany(records);
-        alert(`导入 ${count} 条数据`);
+        
+        if (records.length === 0) return alert("格式错误或无数据");
+        
+        // Use Merge (Upsert) logic instead of AddMany
+        const { added, updated } = await db.mergeStreets(records);
+        
+        alert(`导入完成！\n✅ 新增: ${added} 条\n🔄 更新: ${updated} 条`);
         loadData();
       } catch (error) {
         alert("文件解析失败");

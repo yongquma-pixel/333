@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Search, Plus, Trash2, Download, Upload, AlertTriangle, CheckCircle2, Save, X, Phone, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -92,8 +91,9 @@ export const RelocationPage: React.FC = () => {
           phoneNumber: row['客户电话'] || ''
         })).filter(r => r.oldAddress && r.newAddress);
         
-        await db.addManyRelocations(recordsToImport);
-        alert(`成功导入 ${recordsToImport.length} 条记录`);
+        // Use Merge Logic
+        const { added, updated } = await db.mergeRelocations(recordsToImport);
+        alert(`导入完成！\n✅ 新增: ${added} 条\n🔄 更新: ${updated} 条`);
         loadRecords();
       } catch (err) {
         alert("导入失败，请检查格式");
@@ -207,8 +207,8 @@ export const RelocationPage: React.FC = () => {
                     <button onClick={() => setShowAddModal(true)} className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md">
                         <Plus className="w-5 h-5" /> 录入新纪录
                     </button>
-                    <button onClick={handleExport} className="w-12 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500"><Download className="w-5 h-5" /></button>
-                    <button onClick={() => fileInputRef.current?.click()} className="w-12 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500"><Upload className="w-5 h-5" /></button>
+                    <button onClick={handleExport} className="w-12 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-orange-600"><Download className="w-5 h-5" /></button>
+                    <button onClick={() => fileInputRef.current?.click()} className="w-12 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-orange-600"><Upload className="w-5 h-5" /></button>
                 </div>
 
                 <div className="space-y-3">

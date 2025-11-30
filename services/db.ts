@@ -5,7 +5,7 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { pinyin } from 'pinyin-pro';
 
 const DB_NAME = 'courier_assistant_db';
-const DB_VERSION = 4; 
+const DB_VERSION = 5;
 
 interface CourierDB extends DBSchema {
   streets: {
@@ -38,38 +38,39 @@ const SEED_DATA: StreetRecord[] = [
   { id: '8', streetName: '江南大道', routeArea: '滨江 1 区', pinyin: 'jiangnandadao', failureCount: 0, createdAt: Date.now() },
 ];
 
-// --- HOMOPHONE & FUZZY LOGIC ---
-const HOMOPHONES: Record<string, string> = {
-  '幺': '一', '壹': '一', '妖': '一',
-  '两': '二', '贰': '二',
-  '叁': '三', '山': '三', '散': '三',
-  '肆': '四', '司': '四', '死': '四',
-  '伍': '五', '舞': '五',
-  '陆': '路', '溜': '六',
-  '柒': '七', '妻': '七', '戚': '七',
-  '捌': '八', '发': '八', '爸': '八',
-  '玖': '九', '酒': '九', '久': '九',
-  '拾': '十', '石': '十', '实': '十', '时': '十',
-  '路': '路', '鹭': '路', '露': '路', '录': '路', '鲁': '路', '鹿': '路',
-  '街': '街', '阶': '街', '接': '街', '杰': '街', '洁': '街', '结': '街',
-  '巷': '巷', '向': '巷', '象': '巷', '项': '巷',
-  '道': '道', '到': '道', '导': '道', '岛': '道',
-  '园': '苑', '院': '苑', '圆': '苑',
-  '区': '区', '曲': '区',
-  '号': '号', '豪': '号',
-  '幢': '幢', '栋': '幢',
-  '室': '室', '市': '室',
+const HOMOPHONES: Record<string, string[]> = {
+  '路': ['陆', '鹿', '录', '六'],
+  '街': ['杰', '洁', '节', '阶'],
+  '道': ['到', '稻'],
+  '巷': ['项', '像'],
+  '苑': ['院', '园', '元'],
+  '桥': ['乔', '俏'],
+  '一': ['幺', '1'],
+  '二': ['两', '2'],
+  '三': ['山', '3'],
+  '四': ['是', '4'],
+  '五': ['舞', '5'],
+  '六': ['溜', '6'],
+  '七': ['期', '7'],
+  '八': ['发', '8'],
+  '九': ['久', '9'],
+  '十': ['石', '10'],
 };
 
-// Levenshtein distance for fuzzy matching
+// Levenshtein Distance
 const levenshtein = (a: string, b: string): number => {
   const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
   for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
   for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
     }
   }
   return matrix[a.length][b.length];
@@ -83,7 +84,7 @@ const getRawPinyin = (text: string) => {
   }
 };
 
-class DatabaseService {
+class DBService {
   private db: IDBPDatabase<CourierDB> | null = null;
 
   async init() {
@@ -91,8 +92,7 @@ class DatabaseService {
     this.db = await openDB<CourierDB>(DB_NAME, DB_VERSION, {
       upgrade(db, oldVersion, newVersion, transaction) {
         if (!db.objectStoreNames.contains('streets')) {
-          const store = db.createObjectStore('streets', { keyPath: 'id' });
-          SEED_DATA.forEach(item => store.add(item));
+          db.createObjectStore('streets', { keyPath: 'id' });
         }
         if (!db.objectStoreNames.contains('todos')) {
           db.createObjectStore('todos', { keyPath: 'id' });
@@ -103,20 +103,38 @@ class DatabaseService {
         if (!db.objectStoreNames.contains('relocations')) {
           db.createObjectStore('relocations', { keyPath: 'id' });
         }
+        
+        // Seed if fresh
+        if (oldVersion === 0) {
+          const store = transaction.objectStore('streets');
+          SEED_DATA.forEach(item => store.put(item));
+        }
       },
     });
   }
 
-  // --- STREETS ---
+  async getStorageStats() {
+    if (navigator.storage && navigator.storage.estimate) {
+      const estimate = await navigator.storage.estimate();
+      const usedMB = ((estimate.usage || 0) / 1024 / 1024).toFixed(1);
+      const quotaGB = ((estimate.quota || 0) / 1024 / 1024 / 1024).toFixed(1);
+      const percentUsed = Math.round(((estimate.usage || 0) / (estimate.quota || 1)) * 100);
+      return { usedMB, remainingGB: quotaGB, percentUsed };
+    }
+    return { usedMB: "0", remainingGB: "0", percentUsed: 0 };
+  }
+
+  // --- Streets ---
+
   async getAll(): Promise<StreetRecord[]> {
     if (!this.db) await this.init();
     return this.db!.getAll('streets');
   }
 
-  async add(street: Omit<StreetRecord, 'id' | 'failureCount' | 'createdAt'>) {
+  async add(record: Omit<StreetRecord, 'id' | 'failureCount' | 'createdAt'>) {
     if (!this.db) await this.init();
     const newRecord: StreetRecord = {
-      ...street,
+      ...record,
       id: Math.random().toString(36).substr(2, 9),
       failureCount: 0,
       createdAt: Date.now(),
@@ -124,22 +142,53 @@ class DatabaseService {
     await this.db!.add('streets', newRecord);
   }
 
-  async addMany(streets: Omit<StreetRecord, 'id' | 'failureCount' | 'createdAt'>[]) {
+  async addMany(records: Omit<StreetRecord, 'id' | 'failureCount' | 'createdAt'>[]): Promise<number> {
     if (!this.db) await this.init();
     const tx = this.db!.transaction('streets', 'readwrite');
     const store = tx.objectStore('streets');
-    let count = 0;
-    for (const s of streets) {
+    for (const r of records) {
       await store.add({
-        ...s,
+        ...r,
         id: Math.random().toString(36).substr(2, 9),
         failureCount: 0,
-        createdAt: Date.now(),
+        createdAt: Date.now()
       });
-      count++;
     }
     await tx.done;
-    return count;
+    return records.length;
+  }
+
+  async mergeStreets(records: Omit<StreetRecord, 'id' | 'failureCount' | 'createdAt'>[]): Promise<{added: number, updated: number}> {
+    if (!this.db) await this.init();
+    const all = await this.getAll();
+    const tx = this.db!.transaction('streets', 'readwrite');
+    const store = tx.objectStore('streets');
+    
+    let added = 0;
+    let updated = 0;
+
+    for (const r of records) {
+      const existing = all.find(s => s.streetName === r.streetName);
+      if (existing) {
+        await store.put({ ...existing, routeArea: r.routeArea, pinyin: r.pinyin || existing.pinyin });
+        updated++;
+      } else {
+        await store.add({
+          ...r,
+          id: Math.random().toString(36).substr(2, 9),
+          failureCount: 0,
+          createdAt: Date.now()
+        });
+        added++;
+      }
+    }
+    await tx.done;
+    return { added, updated };
+  }
+
+  async delete(id: string) {
+    if (!this.db) await this.init();
+    await this.db!.delete('streets', id);
   }
 
   async update(id: string, updates: Partial<StreetRecord>) {
@@ -153,123 +202,133 @@ class DatabaseService {
     await tx.done;
   }
 
-  async delete(id: string) {
-    if (!this.db) await this.init();
-    await this.db!.delete('streets', id);
+  async generateQuiz(count: number): Promise<{question: StreetRecord, options: string[]}[]> {
+    const all = await this.getAll();
+    const uniqueAreas = Array.from(new Set(all.map(s => s.routeArea)));
+    const shuffled = all.sort(() => 0.5 - Math.random()).slice(0, count);
+
+    return shuffled.map(q => {
+      const wrongAreas = uniqueAreas.filter(a => a !== q.routeArea);
+      const options = [q.routeArea];
+      
+      // Add up to 3 wrong options
+      const dist = wrongAreas.sort(() => 0.5 - Math.random()).slice(0, 3);
+      options.push(...dist);
+      
+      // Pad if not enough unique areas
+      while(options.length < 4) {
+        options.push(`未知区域 ${options.length}`);
+      }
+      
+      return {
+        question: q,
+        options: options.sort(() => 0.5 - Math.random())
+      };
+    });
   }
 
-  // --- SEARCH LOGIC ---
-  private normalizeText(text: string): string {
-    let normalized = text;
-    for (const [key, value] of Object.entries(HOMOPHONES)) {
-      normalized = normalized.split(key).join(value);
-    }
-    return normalized;
-  }
-
+  // Enhanced Search with Homophone + Fuzzy + Sliding Window
   async search(query: string): Promise<StreetRecord[]> {
     if (!this.db) await this.init();
     const all = await this.getAll();
-    const cleanQuery = this.normalizeText(query);
-    const queryPinyin = getRawPinyin(cleanQuery);
+    const target = query.trim();
+    if (!target) return [];
 
-    const scored = all.map(record => {
+    const targetPinyin = getRawPinyin(target);
+
+    // Scoring
+    const scored = all.map(s => {
       let score = 0;
-      const cleanName = this.normalizeText(record.streetName);
-      const namePinyin = getRawPinyin(cleanName);
-
-      // 1. Exact match (High Priority)
-      if (cleanName === cleanQuery) score = 100;
-      // 2. Contains match
-      else if (cleanName.includes(cleanQuery)) score = 90;
-      else if (cleanQuery.includes(cleanName)) score = 85;
-      // 3. Pinyin Exact
-      else if (namePinyin === queryPinyin) score = 80;
-      // 4. Fuzzy Match (Levenshtein) - Allow ~1-2 char diff
-      else {
-        const dist = levenshtein(cleanName, cleanQuery);
-        if (dist <= 2) score = 70 - dist * 10;
-        
-        // Pinyin Fuzzy
-        const pinyinDist = levenshtein(namePinyin, queryPinyin);
-        if (pinyinDist <= 2 && pinyinDist < dist) score = 75 - pinyinDist * 10;
-      }
-
-      return { record, score };
-    });
-
-    return scored
-      .filter(item => item.score > 60)
-      .sort((a, b) => b.score - a.score)
-      .map(item => item.record);
-  }
-
-  async batchRecognize(transcript: string): Promise<{ original: string; match: StreetRecord | null }[]> {
-    if (!this.db) await this.init();
-    const allStreets = await this.getAll();
-    const cleanTranscript = this.normalizeText(transcript);
-    const transcriptPinyin = getRawPinyin(cleanTranscript);
-
-    // Identify all matches using a sliding window
-    const matches: { start: number; end: number; record: StreetRecord; score: number }[] = [];
-
-    // Simple brute-force sliding window against all streets
-    // In a real app with 10k streets, we'd use a Trie or Aho-Corasick.
-    // For local indexedDB with < 500 streets, this is fine.
-    
-    for (const street of allStreets) {
-      const cleanName = this.normalizeText(street.streetName);
       
-      // 1. Direct Substring Check
-      let idx = cleanTranscript.indexOf(cleanName);
-      while (idx !== -1) {
-        matches.push({ start: idx, end: idx + cleanName.length, record: street, score: 100 });
-        idx = cleanTranscript.indexOf(cleanName, idx + 1);
+      // 1. Exact Match
+      if (s.streetName === target) score = 100;
+      else if (s.streetName.includes(target)) score = 80;
+      
+      // 2. Homophone Correction (Manual check)
+      let correctedTarget = target;
+      for (const [key, variants] of Object.entries(HOMOPHONES)) {
+         variants.forEach(v => {
+           correctedTarget = correctedTarget.replace(new RegExp(v, 'g'), key);
+         });
       }
+      if (s.streetName === correctedTarget) score = Math.max(score, 95);
 
-      // 2. Fuzzy Pinyin Window Check (Simplified)
-      const namePinyin = getRawPinyin(cleanName);
-      // Heuristic: If we can't find direct match, check if pinyin exists loosely
-      // This part is complex to implement perfectly efficiently in client-side JS without pre-indexing pinyin.
-      // We will skip heavy fuzzy windowing for "Batch" mode performance, relying on clean transcript.
-    }
+      // 3. Pinyin Levenshtein
+      const sPinyin = s.pinyin || getRawPinyin(s.streetName);
+      const dist = levenshtein(sPinyin, targetPinyin);
+      const maxLen = Math.max(sPinyin.length, targetPinyin.length);
+      const similarity = 1 - (dist / maxLen);
+      
+      if (similarity > 0.8) score = Math.max(score, 70 + (similarity * 20));
 
-    // Sort matches by position, then length (greedy)
-    matches.sort((a, b) => a.start - b.start || (b.end - a.end) - (b.end - a.end));
-
-    // Resolve overlaps
-    const finalSegments: { original: string; match: StreetRecord | null }[] = [];
-    let cursorPos = 0;
-
-    // We need to map back to original transcript indices roughly
-    // This is hard because normalization changes length.
-    // For simplicity, we just output the found streets and the "gaps" as unknown text.
-    
-    let activeMatches = matches.filter((m, i, arr) => {
-        // Filter completely contained matches (e.g. "文三" inside "文三路")
-        return !arr.some(other => other !== m && other.start <= m.start && other.end >= m.end && (other.end - other.start > m.end - m.start));
+      return { ...s, score };
     });
 
-    // Sort again
-    activeMatches.sort((a, b) => a.start - b.start);
-
-    for (const match of activeMatches) {
-        // Gap before match? (In normalized space)
-        // We actually want to show the USER what was recognized.
-        // Since we normalized, we lost the original mapping.
-        // Fallback: Just return the list of matched streets for the batch list.
-        // To make the UI nice, we just return the matched streets.
-    }
-    
-    // Better Batch Strategy for UI:
-    // Just return the list of uniquely identified streets in order of appearance
-    return activeMatches.map(m => ({
-        original: m.record.streetName, // We display the canonical name
-        match: m.record
-    }));
+    return scored.filter(s => s.score > 60).sort((a,b) => b.score - a.score).slice(0, 5);
   }
 
-  // --- TODOS ---
+  // Batch Recognition with Sliding Window
+  async batchRecognize(text: string): Promise<{original: string, match: StreetRecord | null}[]> {
+    if (!this.db) await this.init();
+    const all = await this.getAll();
+    const results: {original: string, match: StreetRecord | null}[] = [];
+    
+    // Normalize text: replace common homophones first for better segmentation chance
+    let processedText = text;
+    for (const [key, variants] of Object.entries(HOMOPHONES)) {
+       variants.forEach(v => {
+         processedText = processedText.replace(new RegExp(v, 'g'), key);
+       });
+    }
+
+    // Sliding window strategy
+    let i = 0;
+    while(i < processedText.length) {
+       let bestMatch: StreetRecord | null = null;
+       let bestLen = 0;
+
+       // Try windows of length 6 down to 2
+       for (let len = 6; len >= 2; len--) {
+         if (i + len > processedText.length) continue;
+         const chunk = processedText.substr(i, len);
+         
+         // Direct check
+         const match = all.find(s => s.streetName === chunk);
+         if (match) {
+           bestMatch = match;
+           bestLen = len;
+           break;
+         }
+
+         // Fuzzy check
+         const chunkPinyin = getRawPinyin(chunk);
+         const fuzzyMatch = all.find(s => {
+             const sPinyin = s.pinyin || getRawPinyin(s.streetName);
+             if (Math.abs(sPinyin.length - chunkPinyin.length) > 2) return false;
+             const dist = levenshtein(sPinyin, chunkPinyin);
+             return dist <= 1; // Very tolerant for short chunks
+         });
+         
+         if (fuzzyMatch) {
+            bestMatch = fuzzyMatch;
+            bestLen = len;
+            break;
+         }
+       }
+
+       if (bestMatch) {
+         results.push({ original: processedText.substr(i, bestLen), match: bestMatch });
+         i += bestLen;
+       } else {
+         // Skip one char if no match
+         i++;
+       }
+    }
+
+    return results;
+  }
+
+  // --- Todos ---
   async getAllTodos(): Promise<TodoItem[]> {
     if (!this.db) await this.init();
     return this.db!.getAll('todos');
@@ -277,7 +336,7 @@ class DatabaseService {
 
   async addTodo(content: string, imageUrl?: string) {
     if (!this.db) await this.init();
-    const newTodo: TodoItem = {
+    const todo: TodoItem = {
       id: Math.random().toString(36).substr(2, 9),
       content,
       isDone: false,
@@ -285,7 +344,7 @@ class DatabaseService {
       createdAt: Date.now(),
       imageUrl
     };
-    await this.db!.add('todos', newTodo);
+    await this.db!.add('todos', todo);
   }
 
   async toggleTodo(id: string) {
@@ -307,52 +366,23 @@ class DatabaseService {
 
   async cleanupOldTodos() {
     if (!this.db) await this.init();
-    const todos = await this.getAllTodos();
+    const all = await this.getAllTodos();
     const now = Date.now();
     const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    
     const tx = this.db!.transaction('todos', 'readwrite');
     const store = tx.objectStore('todos');
-    for (const t of todos) {
-      if (t.isDone && (now - t.createdAt > SEVEN_DAYS)) {
-        await store.delete(t.id);
+    
+    for (const todo of all) {
+      if (todo.isDone && (now - todo.createdAt > SEVEN_DAYS)) {
+        await store.delete(todo.id);
       }
     }
     await tx.done;
   }
 
-  // --- QUIZ GENERATION ---
-  async generateQuiz(count: number): Promise<{question: StreetRecord, options: string[]}[]> {
-    if (!this.db) await this.init();
-    const all = await this.getAll();
-    if (all.length < 4) return [];
-
-    const shuffled = all.sort(() => 0.5 - Math.random()).slice(0, count);
-    const allAreas = Array.from(new Set(all.map(s => s.routeArea)));
-
-    return shuffled.map(q => {
-      const otherAreas = allAreas.filter(a => a !== q.routeArea);
-      const distractors = otherAreas.sort(() => 0.5 - Math.random()).slice(0, 3);
-      // Fill if not enough areas
-      while (distractors.length < 3) {
-        distractors.push(`未知路区 ${Math.floor(Math.random()*10)}`);
-      }
-      const options = [...distractors, q.routeArea].sort(() => 0.5 - Math.random());
-      return { question: q, options };
-    });
-  }
-
-  // --- STORAGE STATS ---
-  async getStorageStats() {
-    if (navigator.storage && navigator.storage.estimate) {
-      const { usage, quota } = await navigator.storage.estimate();
-      const usedMB = ((usage || 0) / 1024 / 1024).toFixed(2);
-      const quotaGB = ((quota || 0) / 1024 / 1024 / 1024).toFixed(1);
-      return { usedMB, remainingGB: quotaGB, percentUsed: 0 };
-    }
-    return { usedMB: "0", remainingGB: "0", percentUsed: 0 };
-  }
-
-  // --- HP-A-1 ---
+  // --- HPA1 (Independent Store) ---
+  
   async getAllHPA1(): Promise<HPA1Item[]> {
     if (!this.db) await this.init();
     return this.db!.getAll('hpa1_items');
@@ -360,25 +390,25 @@ class DatabaseService {
 
   async addHPA1(trackingNumber: string, arrivalDate: string) {
     if (!this.db) await this.init();
-    const newItem: HPA1Item = {
+    const item: HPA1Item = {
       id: Math.random().toString(36).substr(2, 9),
       trackingNumber,
       arrivalDate,
       status: 'pending',
       createdAt: Date.now()
     };
-    await this.db!.add('hpa1_items', newItem);
+    await this.db!.add('hpa1_items', item);
   }
 
   async updateHPA1(id: string, updates: Partial<HPA1Item>) {
-    if (!this.db) await this.init();
-    const tx = this.db!.transaction('hpa1_items', 'readwrite');
-    const store = tx.objectStore('hpa1_items');
-    const item = await store.get(id);
-    if (item) {
-      await store.put({ ...item, ...updates });
-    }
-    await tx.done;
+     if (!this.db) await this.init();
+     const tx = this.db!.transaction('hpa1_items', 'readwrite');
+     const store = tx.objectStore('hpa1_items');
+     const item = await store.get(id);
+     if (item) {
+       await store.put({ ...item, ...updates });
+     }
+     await tx.done;
   }
 
   async completeHPA1(id: string) {
@@ -393,78 +423,149 @@ class DatabaseService {
     await tx.done;
   }
 
-  // --- RELOCATIONS ---
+  async mergeHPA1(items: Omit<HPA1Item, 'id' | 'createdAt' | 'status'>[]): Promise<{added: number, updated: number}> {
+      if (!this.db) await this.init();
+      const all = await this.getAllHPA1();
+      const tx = this.db!.transaction('hpa1_items', 'readwrite');
+      const store = tx.objectStore('hpa1_items');
+      
+      let added = 0;
+      let updated = 0;
+  
+      for (const item of items) {
+        const existing = all.find(r => r.trackingNumber === item.trackingNumber);
+        if (existing) {
+          await store.put({ ...existing, arrivalDate: item.arrivalDate });
+          updated++;
+        } else {
+          await store.add({
+            ...item,
+            id: Math.random().toString(36).substr(2, 9),
+            status: 'pending',
+            createdAt: Date.now()
+          });
+          added++;
+        }
+      }
+      await tx.done;
+      return { added, updated };
+  }
+
+  // --- Relocations ---
+
   async getAllRelocations(): Promise<RelocationRecord[]> {
     if (!this.db) await this.init();
     return this.db!.getAll('relocations');
   }
 
-  async addRelocation(data: Omit<RelocationRecord, 'id' | 'createdAt' | 'errorCount'>) {
+  async addRelocation(record: Omit<RelocationRecord, 'id' | 'createdAt' | 'errorCount'>) {
     if (!this.db) await this.init();
-    const newItem: RelocationRecord = {
+    const item: RelocationRecord = {
       id: Math.random().toString(36).substr(2, 9),
-      ...data,
+      ...record,
       errorCount: 0,
       createdAt: Date.now()
     };
-    await this.db!.add('relocations', newItem);
+    await this.db!.add('relocations', item);
   }
 
-  async addManyRelocations(items: Omit<RelocationRecord, 'id' | 'createdAt' | 'errorCount'>[]) {
+  async addManyRelocations(records: Omit<RelocationRecord, 'id' | 'createdAt' | 'errorCount'>[]) {
     if (!this.db) await this.init();
     const tx = this.db!.transaction('relocations', 'readwrite');
     const store = tx.objectStore('relocations');
-    for (const item of items) {
-       await store.add({
-         id: Math.random().toString(36).substr(2, 9),
-         ...item,
-         errorCount: 0,
-         createdAt: Date.now()
-       });
+    for (const r of records) {
+        await store.add({
+            ...r,
+            id: Math.random().toString(36).substr(2, 9),
+            errorCount: 0,
+            createdAt: Date.now()
+        });
     }
     await tx.done;
+  }
+
+  async mergeRelocations(records: Omit<RelocationRecord, 'id' | 'createdAt' | 'errorCount'>[]): Promise<{added: number, updated: number}> {
+      if (!this.db) await this.init();
+      const all = await this.getAllRelocations();
+      const tx = this.db!.transaction('relocations', 'readwrite');
+      const store = tx.objectStore('relocations');
+      
+      let added = 0;
+      let updated = 0;
+
+      for (const r of records) {
+          // Merge strategy: Check phone number first (precise), then address
+          let existing = all.find(ex => ex.phoneNumber && ex.phoneNumber === r.phoneNumber);
+          if (!existing) {
+              existing = all.find(ex => ex.oldAddress === r.oldAddress);
+          }
+
+          if (existing) {
+              await store.put({ 
+                  ...existing, 
+                  newAddress: r.newAddress,
+                  phoneNumber: r.phoneNumber || existing.phoneNumber 
+              });
+              updated++;
+          } else {
+              await store.add({
+                  ...r,
+                  id: Math.random().toString(36).substr(2, 9),
+                  errorCount: 0,
+                  createdAt: Date.now()
+              });
+              added++;
+          }
+      }
+      await tx.done;
+      return { added, updated };
   }
 
   async deleteRelocation(id: string) {
-    if (!this.db) await this.init();
-    await this.db!.delete('relocations', id);
+      if (!this.db) await this.init();
+      await this.db!.delete('relocations', id);
   }
 
   async incrementRelocationError(id: string) {
-    if (!this.db) await this.init();
-    const tx = this.db!.transaction('relocations', 'readwrite');
-    const store = tx.objectStore('relocations');
-    const item = await store.get(id);
-    if (item) {
-        item.errorCount = (item.errorCount || 0) + 1;
-        await store.put(item);
-    }
-    await tx.done;
+      if (!this.db) await this.init();
+      const tx = this.db!.transaction('relocations', 'readwrite');
+      const store = tx.objectStore('relocations');
+      const item = await store.get(id);
+      if (item) {
+          item.errorCount = (item.errorCount || 0) + 1;
+          await store.put(item);
+      }
+      await tx.done;
   }
 
-  async searchRelocation(query: string): Promise<RelocationRecord[]> {
+  async searchRelocation(text: string): Promise<RelocationRecord[]> {
     if (!this.db) await this.init();
-    if (!query) return [];
-    
     const all = await this.getAllRelocations();
-    const cleanQuery = this.normalizeText(query);
-    const queryPinyin = getRawPinyin(cleanQuery);
+    const query = text.trim();
+    if (!query) return [];
 
-    return all.filter(item => {
-        // 1. Phone number match (Partial or Exact)
-        if (query.match(/^\d+$/) && item.phoneNumber.includes(query)) return true;
+    // Check if query looks like a phone number (digits)
+    const isPhoneQuery = /^\d+$/.test(query);
 
-        // 2. Old Address Fuzzy Match
-        const cleanOld = this.normalizeText(item.oldAddress);
-        if (cleanOld.includes(cleanQuery)) return true;
-        
-        // Fuzzy
-        const dist = levenshtein(cleanOld, cleanQuery);
-        if (dist <= 2) return true;
+    return all.filter(r => {
+        if (isPhoneQuery) {
+            // Precise or partial match on phone
+            return r.phoneNumber.includes(query);
+        } else {
+            // Fuzzy match on address
+            const oldPinyin = getRawPinyin(r.oldAddress);
+            const queryPinyin = getRawPinyin(query);
+            
+            // Direct containment
+            if (r.oldAddress.includes(query)) return true;
 
-        return false;
+            // Pinyin check (allow 1-2 char errors)
+            const dist = levenshtein(oldPinyin, queryPinyin);
+            // Allow fuzzy match based on length
+            return dist <= 2;
+        }
     });
   }
 }
 
-export const db = new DatabaseService();
+export const db = new DBService();

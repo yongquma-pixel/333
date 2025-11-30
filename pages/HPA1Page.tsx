@@ -1,9 +1,9 @@
-
-import React, { useState, useEffect } from 'react';
-import { Box, Mic, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Plus, Calendar, Check, X, Info, Circle, CircleDashed } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Box, Mic, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Plus, Calendar, Check, X, Info, Circle, CircleDashed, Download, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { db } from '../services/db';
 import { HPA1Item } from '../types';
+import * as XLSX from 'xlsx';
 
 export const HPA1Page: React.FC = () => {
   const [items, setItems] = useState<HPA1Item[]>([]);
@@ -11,6 +11,7 @@ export const HPA1Page: React.FC = () => {
   const [arrivalDate, setArrivalDate] = useState(new Date().toISOString().slice(0, 10));
   const [isListening, setIsListening] = useState(false);
   const [confirmCompleteId, setConfirmCompleteId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   useEffect(() => {
     loadItems();
@@ -68,6 +69,44 @@ export const HPA1Page: React.FC = () => {
     loadItems();
   };
 
+  const handleExport = () => {
+    const data = items.map(item => ({
+        "运单号": item.trackingNumber,
+        "到港日期": item.arrivalDate,
+        "状态": item.status === 'paid' ? '已完结' : '待处理'
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, "滞留件数据");
+    XLSX.writeFile(wb, `滞留件_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+        try {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const data = XLSX.utils.sheet_to_json(wb.Sheets[wsname]);
+            const records = data.map((row: any) => ({
+                trackingNumber: row['运单号'],
+                arrivalDate: row['到港日期'] || new Date().toISOString().slice(0, 10)
+            })).filter((r: any) => r.trackingNumber);
+            
+            // Use Merge (Upsert)
+            const { added, updated } = await db.mergeHPA1(records);
+            alert(`导入完成！\n✅ 新增: ${added} 条\n🔄 更新: ${updated} 条`);
+            loadItems();
+        } catch (err) {
+            alert("导入失败");
+        }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const getDaysRetained = (dateStr: string) => {
     const start = new Date(dateStr).setHours(0,0,0,0);
     const now = new Date().setHours(0,0,0,0);
@@ -82,15 +121,20 @@ export const HPA1Page: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
+      <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".xlsx" />
       {/* Header */}
       <div className="bg-white px-4 py-3 shadow-sm border-b border-gray-100 flex items-center justify-between z-10 sticky top-0">
         <div className="flex items-center space-x-3">
            <Link to="/" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"><ArrowLeft className="w-5 h-5" /></Link>
            <h1 className="text-lg font-bold text-gray-800">滞留件管理</h1>
         </div>
-        <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs font-bold flex items-center">
-           <Box className="w-3 h-3 mr-1" />
-           {items.length} 待处理
+        <div className="flex items-center space-x-2">
+            <button onClick={handleExport} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-purple-600"><Download className="w-5 h-5" /></button>
+            <button onClick={() => fileInputRef.current?.click()} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-purple-600"><Upload className="w-5 h-5" /></button>
+            <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs font-bold flex items-center">
+               <Box className="w-3 h-3 mr-1" />
+               {items.length} 待处理
+            </div>
         </div>
       </div>
 
