@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Search, Save, X, Download, Upload, AlertTriangle, Mail } from 'lucide-react';
+import { Plus, Trash2, Search, Save, X, Download, Upload, AlertTriangle, Mail, Filter, ChevronDown } from 'lucide-react';
 import { db } from '../services/db';
 import { StreetRecord } from '../types';
 import * as XLSX from 'xlsx';
@@ -9,6 +10,7 @@ import { pinyin } from 'pinyin-pro';
 export const ManagePage: React.FC = () => {
   const [streets, setStreets] = useState<StreetRecord[]>([]);
   const [filter, setFilter] = useState('');
+  const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -115,21 +117,35 @@ export const ManagePage: React.FC = () => {
     reader.readAsBinaryString(file);
   };
 
-  const filteredStreets = streets.filter(s => s.streetName.includes(filter) || s.routeArea.includes(filter));
+  // Get Unique Route Areas for filter
+  const uniqueAreas = Array.from(new Set(streets.map(s => s.routeArea))).sort();
+
+  const filteredStreets = streets.filter(s => {
+    const matchesFilter = s.streetName.includes(filter) || s.routeArea.includes(filter);
+    const matchesArea = selectedArea ? s.routeArea === selectedArea : true;
+    return matchesFilter && matchesArea;
+  });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative min-h-full">
       <input type="file" accept=".xlsx, .xls" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+      
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold text-gray-800">题库管理 ({streets.length})</h2>
-        <button onClick={() => setIsAdding(true)} className="bg-brand-600 text-white px-3 py-2 rounded-lg flex items-center space-x-1 text-sm font-medium shadow-md">
-          <Plus className="w-4 h-4" /><span>新增</span>
-        </button>
       </div>
+
       <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex space-x-3">
         <button onClick={handleExport} className="flex-1 flex items-center justify-center space-x-2 bg-green-50 text-green-700 py-2 rounded-lg text-sm font-medium hover:bg-green-100"><Download className="w-4 h-4" /><span>导出备份</span></button>
         <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center space-x-2 bg-blue-50 text-blue-700 py-2 rounded-lg text-sm font-medium hover:bg-blue-100"><Upload className="w-4 h-4" /><span>导入Excel</span></button>
       </div>
+
+      {/* Floating Action Button (FAB) for Adding */}
+      <button 
+        onClick={() => setIsAdding(true)} 
+        className="fixed right-6 bottom-24 w-14 h-14 bg-brand-600 text-white rounded-full flex items-center justify-center shadow-xl z-30 hover:bg-brand-700 active:scale-90 transition-all"
+      >
+        <Plus className="w-8 h-8" />
+      </button>
 
       {/* Add Modal */}
       {isAdding && (
@@ -176,18 +192,60 @@ export const ManagePage: React.FC = () => {
         </div>
       )}
 
-      <div className="relative">
-        <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-        <input type="text" placeholder="搜索..." className="w-full pl-9 pr-4 py-2.5 border rounded-xl" value={filter} onChange={e => setFilter(e.target.value)} />
+      {/* Search & Filter */}
+      <div className="space-y-3">
+        <div className="flex space-x-2">
+          {/* Text Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="搜索道路..." 
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-brand-500 outline-none" 
+              value={filter} 
+              onChange={e => setFilter(e.target.value)} 
+            />
+          </div>
+          
+          {/* Dropdown Filter */}
+          <div className="relative w-1/3 min-w-[120px]">
+            <div className="absolute left-2.5 top-3 pointer-events-none">
+               <Filter className="w-4 h-4 text-brand-600" />
+            </div>
+            <select
+              value={selectedArea || ''}
+              onChange={(e) => setSelectedArea(e.target.value || null)}
+              className="w-full appearance-none bg-white border border-gray-200 rounded-xl py-2.5 pl-8 pr-8 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-brand-500 truncate"
+            >
+              <option value="">全部路区</option>
+              {uniqueAreas.map(area => (
+                <option key={area} value={area}>{area} ({streets.filter(s => s.routeArea === area).length})</option>
+              ))}
+            </select>
+            <div className="absolute right-2.5 top-3 pointer-events-none">
+               <ChevronDown className="w-4 h-4 text-gray-400" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="space-y-2 pb-20">
+        <div className="flex justify-between items-center text-xs text-gray-400 px-1">
+            <span>显示 {filteredStreets.length} 条</span>
+            {selectedArea && <span className="text-brand-600 font-bold">已筛选: {selectedArea}</span>}
+        </div>
         {filteredStreets.map(item => (
           <div key={item.id} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center">
             <div><div className="font-bold text-gray-800">{item.streetName}</div><div className="text-xs text-brand-600 bg-brand-50 inline-block px-2 py-0.5 rounded mt-1">{item.routeArea}</div></div>
             <button onClick={() => setDeleteId(item.id)} className="p-2 text-gray-300 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
           </div>
         ))}
+        {filteredStreets.length === 0 && (
+            <div className="text-center py-10 text-gray-400">
+               <p className="mb-2">没有找到数据</p>
+               {selectedArea && <button onClick={() => setSelectedArea(null)} className="text-brand-600 text-sm font-bold">清除筛选</button>}
+            </div>
+        )}
       </div>
     </div>
   );

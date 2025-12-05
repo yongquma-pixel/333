@@ -11,11 +11,9 @@ import {
   CloudSun, 
   Loader2, 
   Database,
-  Box,
-  CreditCard,
   Zap,
-  History,
-  RotateCcw
+  CalendarClock,
+  XCircle,
 } from 'lucide-react';
 import { db } from '../services/db';
 
@@ -23,6 +21,8 @@ export const HomePage: React.FC = () => {
   const [weather, setWeather] = useState<{ temp: number; code: number } | null>(null);
   const [greeting, setGreeting] = useState("你好，分拣员");
   const [storageStats, setStorageStats] = useState({ usedMB: "0", remainingGB: "0", percentUsed: 0 });
+  const [dueReviewCount, setDueReviewCount] = useState(0);
+  const [mistakePoolCount, setMistakePoolCount] = useState(0);
   
   useEffect(() => {
     // 1. Random Greeting
@@ -49,9 +49,11 @@ export const HomePage: React.FC = () => {
       });
     }
 
-    // 3. Storage Stats
+    // 3. Storage Stats & Due Reviews
     db.init().then(() => {
       db.getStorageStats().then(setStorageStats);
+      db.getDueStreets().then(res => setDueReviewCount(res.length));
+      db.getMistakePool().then(res => setMistakePoolCount(res.length));
     });
   }, []);
 
@@ -118,43 +120,36 @@ export const HomePage: React.FC = () => {
           {/* Daily Quiz */}
           <Link to="/quiz" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-32 relative overflow-hidden group active:scale-95 transition-transform">
              <div className="relative z-10">
-               <div className="bg-blue-50 w-10 h-10 rounded-xl flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors">
-                  <BrainCircuit className="w-6 h-6 text-blue-600" />
+               <div className="flex justify-between items-start">
+                   <div className="bg-blue-50 w-10 h-10 rounded-xl flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors">
+                      <BrainCircuit className="w-6 h-6 text-blue-600" />
+                   </div>
+                   {dueReviewCount > 0 && (
+                       <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse shadow-sm">
+                           {dueReviewCount} 待复习
+                       </span>
+                   )}
                </div>
                <span className="font-bold text-gray-800 block text-lg">每日一练</span>
                <span className="text-gray-400 text-xs">保持记忆热度</span>
              </div>
           </Link>
 
-          {/* HP-A-1 */}
-          <Link 
-            to="/hpa1"
-            className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-32 relative overflow-hidden group active:scale-95 transition-transform cursor-pointer"
-          >
+          {/* Mistake Pool (Dedicated Hardcore Mode) */}
+          <Link to="/quiz?mode=mistake" className="bg-red-50 p-5 rounded-2xl shadow-sm border border-red-100 flex flex-col justify-between h-32 relative overflow-hidden group active:scale-95 transition-transform">
              <div className="relative z-10">
-               <div className="bg-purple-50 w-10 h-10 rounded-xl flex items-center justify-center mb-2 group-hover:bg-purple-100 transition-colors">
-                  <Box className="w-6 h-6 text-purple-600" />
-               </div>
-               <span className="font-bold text-gray-800 block text-lg">HP-A-1</span>
-               <span className="text-gray-400 text-xs">运单快速处理</span>
-             </div>
-             <CreditCard className="absolute right-3 bottom-3 w-12 h-12 text-purple-50 -z-0 transform rotate-12" />
-          </Link>
-
-          {/* Historical Relocation Query */}
-          <Link 
-            to="/relocation"
-            className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-32 relative overflow-hidden group active:scale-95 transition-transform cursor-pointer"
-          >
-             <div className="relative z-10 flex items-center justify-between">
-               <div>
-                  <div className="bg-orange-50 w-10 h-10 rounded-xl flex items-center justify-center mb-2 group-hover:bg-orange-100 transition-colors">
-                      <History className="w-6 h-6 text-orange-600" />
+               <div className="flex justify-between items-start">
+                  <div className="bg-red-100 w-10 h-10 rounded-xl flex items-center justify-center mb-2 group-hover:bg-red-200 transition-colors">
+                      <XCircle className="w-6 h-6 text-red-600" />
                   </div>
-                  <span className="font-bold text-gray-800 block text-lg">历史搬迁</span>
-                  <span className="text-gray-400 text-xs">老地址智能检索</span>
+                  {mistakePoolCount > 0 && (
+                       <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                           {mistakePoolCount} 个死磕
+                       </span>
+                  )}
                </div>
-               <RotateCcw className="w-16 h-16 text-orange-50 transform -rotate-12 absolute -right-4 bottom-0" />
+               <span className="font-bold text-gray-800 block text-lg">强化错题本</span>
+               <span className="text-red-600 text-xs font-medium">连续5次正确才能移除</span>
              </div>
           </Link>
         </div>

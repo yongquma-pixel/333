@@ -4,8 +4,17 @@ export interface StreetRecord {
   streetName: string;
   routeArea: string;
   pinyin: string;
-  failureCount: number; // For tracking mistakes
+  failureCount: number; // Total historic failures
   createdAt: number;
+  
+  // Ebbinghaus Forgetting Curve Fields
+  reviewStage?: number; // 0-6. 0 = New/Forgotten, 6 = Mastered
+  nextReviewTime?: number; // Timestamp when it should be reviewed next
+  lastReviewTime?: number; // Timestamp of last attempt
+
+  // Dedicated Mistake Pool (Hardcore Mode)
+  isInMistakePool?: boolean; // Is currently in the "Mistake Book"
+  mistakeStreak?: number; // Current consecutive correct answers in mistake mode (Target: 5)
 }
 
 export interface QuizQuestion {
@@ -17,30 +26,4 @@ export interface QuizResult {
   total: number;
   correct: number;
   wrongStreets: StreetRecord[];
-}
-
-export interface HPA1Item {
-  id: string;
-  trackingNumber: string;
-  arrivalDate: string; // YYYY-MM-DD
-  status: 'pending' | 'paid';
-  createdAt: number;
-}
-
-export interface TodoItem {
-  id: string;
-  content: string;
-  isDone: boolean;
-  date: string; // YYYY-MM-DD
-  createdAt: number;
-  imageUrl?: string; // Base64 compressed image
-}
-
-export interface RelocationRecord {
-  id: string;
-  oldAddress: string;
-  newAddress: string;
-  phoneNumber: string;
-  errorCount: number; // Tracking how many times this record was flagged as wrong
-  createdAt: number;
 }

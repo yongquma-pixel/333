@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Map, Home, CheckSquare, Settings } from 'lucide-react';
+import { Map, Home, Settings } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -34,10 +35,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         <Link to="/" className={`flex flex-col items-center space-y-1 ${isActive('/') ? 'text-brand-600' : 'text-gray-400'}`}>
           <Home className="w-6 h-6" />
           <span className="text-xs">首页</span>
-        </Link>
-        <Link to="/todo" className={`flex flex-col items-center space-y-1 ${isActive('/todo') ? 'text-brand-600' : 'text-gray-400'}`}>
-          <CheckSquare className="w-6 h-6" />
-          <span className="text-xs">待办</span>
         </Link>
         <Link to="/manage" className={`flex flex-col items-center space-y-1 ${isActive('/manage') ? 'text-brand-600' : 'text-gray-400'}`}>
           <Settings className="w-6 h-6" />
