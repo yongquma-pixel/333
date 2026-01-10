@@ -6,8 +6,7 @@ import { HomePage } from './pages/HomePage';
 import { ManagePage } from './pages/ManagePage';
 import { QuizPage } from './pages/QuizPage';
 import { SearchPage } from './pages/SearchPage';
-import { RelocationPage } from './pages/RelocationPage';
-import { JDAddressPage } from './pages/JDAddressPage';
+import { LibraryPage } from './pages/LibraryPage';
 
 const App: React.FC = () => {
   return (
@@ -18,6 +17,7 @@ const App: React.FC = () => {
           <Route path="/manage" element={<ManagePage />} />
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/search" element={<SearchPage />} />
+          <Route path="/library" element={<LibraryPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

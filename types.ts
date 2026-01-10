@@ -3,10 +3,15 @@ export interface StreetRecord {
   id: string;
   streetName: string;
   routeArea: string;
+  companyName: string; // 新增字段：公司名称
   pinyin: string;
   failureCount: number; // Total historic failures
   createdAt: number;
   
+  // Geolocation
+  lat?: number;
+  lng?: number;
+
   // Ebbinghaus Forgetting Curve Fields
   reviewStage?: number; // 0-6. 0 = New/Forgotten, 6 = Mastered
   nextReviewTime?: number; // Timestamp when it should be reviewed next

@@ -5,7 +5,7 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { pinyin } from 'pinyin-pro';
 
 const DB_NAME = 'courier_assistant_db';
-const DB_VERSION = 7; // Cleaned up schema version
+const DB_VERSION = 9; // 再次提升版本号以清理旧的默认值
 
 // Ebbinghaus Intervals in Days. 0.5 = 12 hours.
 const SRS_INTERVALS = [0.5, 1, 3, 7, 15, 30];
@@ -19,17 +19,13 @@ interface CourierDB extends DBSchema {
 
 // Seed data
 const SEED_DATA: StreetRecord[] = [
-  { id: '1', streetName: '文三路', routeArea: '西湖 1 区', pinyin: 'wensanlu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '2', streetName: '文一西路', routeArea: '余杭 5 区', pinyin: 'wenyixilu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '3', streetName: '博奥路', routeArea: '萧山 2 区', pinyin: 'bo aolu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '4', streetName: '解放东路', routeArea: '江干 3 区', pinyin: 'jiefangdonglu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '5', streetName: '延安路', routeArea: '上城 1 区', pinyin: 'yananlu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '6', streetName: '体育场路', routeArea: '下城 2 区', pinyin: 'tiyuchanglu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '7', streetName: '古墩路', routeArea: '西湖 3 区', pinyin: 'gudunlu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
-  { id: '8', streetName: '江南大道', routeArea: '滨江 1 区', pinyin: 'jiangnandadao', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
+  { id: '1', streetName: '文三路', routeArea: '西湖 1 区', companyName: '顺丰速运', pinyin: 'wensanlu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0, lat: 30.2741, lng: 120.1302 },
+  { id: '2', streetName: '文一西路', routeArea: '余杭 5 区', companyName: '圆通快递', pinyin: 'wenyixilu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
+  { id: '3', streetName: '博奥路', routeArea: '萧山 2 区', companyName: '', pinyin: 'bo aolu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
+  { id: '4', streetName: '解放东路', routeArea: '江干 3 区', companyName: '韵达快递', pinyin: 'jiefangdonglu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
+  { id: '5', streetName: '延安路', routeArea: '上城 1 区', companyName: '', pinyin: 'yananlu', failureCount: 0, createdAt: Date.now(), reviewStage: 0, nextReviewTime: 0, isInMistakePool: false, mistakeStreak: 0 },
 ];
 
-// Enhanced Homophone Map for Courier Context
 const HOMOPHONES: Record<string, string[]> = {
   '路': ['陆', '鹿', '录', '六', '楼'],
   '街': ['杰', '洁', '节', '阶', '界'],
@@ -54,7 +50,6 @@ const HOMOPHONES: Record<string, string[]> = {
   '零': ['0', '林', '灵'],
 };
 
-// Levenshtein Distance
 const levenshtein = (a: string, b: string): number => {
   const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
   for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
@@ -83,7 +78,6 @@ const getRawPinyin = (text: string) => {
 
 class DBService {
   private db: IDBPDatabase<CourierDB> | null = null;
-  // Cache for batch processing optimization
   private cachedStreets: StreetRecord[] | null = null;
 
   async init() {
@@ -94,11 +88,20 @@ class DBService {
           db.createObjectStore('streets', { keyPath: 'id' });
         }
         
-        // Seed if fresh
-        if (oldVersion === 0) {
-          const store = transaction.objectStore('streets');
-          SEED_DATA.forEach(item => store.put(item));
-        }
+        const store = transaction.objectStore('streets');
+        (async () => {
+            const all = await store.getAll();
+            // 清理旧版本可能存在的“未知网点”标记，改为空字符串
+            for (const item of all) {
+                if (!item.companyName || item.companyName === '未知网点') {
+                    item.companyName = '';
+                    await store.put(item);
+                }
+            }
+            if (all.length === 0) {
+                SEED_DATA.forEach(item => store.put(item));
+            }
+        })();
       },
     });
   }
@@ -114,8 +117,6 @@ class DBService {
     return { usedMB: "0", remainingGB: "0", percentUsed: 0 };
   }
 
-  // --- Streets ---
-
   async getAll(): Promise<StreetRecord[]> {
     if (!this.db) await this.init();
     return this.db!.getAll('streets');
@@ -125,7 +126,6 @@ class DBService {
     const all = await this.getAll();
     const now = Date.now();
     return all.filter(s => {
-      // Standard SRS logic
       if (s.nextReviewTime && s.nextReviewTime <= now) return true;
       if (s.failureCount > 0 && !s.nextReviewTime) return true;
       return false;
@@ -141,6 +141,7 @@ class DBService {
     if (!this.db) await this.init();
     const newRecord: StreetRecord = {
       ...record,
+      companyName: record.companyName || '', // 确保不为 undefined
       id: Math.random().toString(36).substr(2, 9),
       failureCount: 0,
       createdAt: Date.now(),
@@ -150,7 +151,19 @@ class DBService {
       mistakeStreak: 0
     };
     await this.db!.add('streets', newRecord);
-    this.cachedStreets = null; // Invalidate cache
+    this.cachedStreets = null; 
+  }
+
+  async updateStreetLocation(id: string, lat: number, lng: number) {
+    if (!this.db) await this.init();
+    const tx = this.db!.transaction('streets', 'readwrite');
+    const store = tx.objectStore('streets');
+    const item = await store.get(id);
+    if (item) {
+        await store.put({ ...item, lat, lng });
+    }
+    await tx.done;
+    this.cachedStreets = null;
   }
 
   async mergeStreets(records: Omit<StreetRecord, 'id' | 'failureCount' | 'createdAt'>[]): Promise<{added: number, updated: number}> {
@@ -165,11 +178,17 @@ class DBService {
     for (const r of records) {
       const existing = all.find(s => s.streetName === r.streetName);
       if (existing) {
-        await store.put({ ...existing, routeArea: r.routeArea, pinyin: r.pinyin || existing.pinyin });
+        await store.put({ 
+            ...existing, 
+            routeArea: r.routeArea, 
+            companyName: r.companyName !== undefined ? r.companyName : existing.companyName,
+            pinyin: r.pinyin || existing.pinyin 
+        });
         updated++;
       } else {
         await store.add({
           ...r,
+          companyName: r.companyName || '',
           id: Math.random().toString(36).substr(2, 9),
           failureCount: 0,
           createdAt: Date.now(),
@@ -192,7 +211,6 @@ class DBService {
     this.cachedStreets = null;
   }
 
-  // CORE QUIZ LOGIC (Combined SRS + Mistake Pool)
   async processQuizResult(id: string, isCorrect: boolean) {
     if (!this.db) await this.init();
     const tx = this.db!.transaction('streets', 'readwrite');
@@ -208,29 +226,24 @@ class DBService {
     let updates: Partial<StreetRecord> = { lastReviewTime: now };
 
     if (isCorrect) {
-        // 1. SRS Logic: Increase stage
         const currentStage = item.reviewStage || 0;
         const nextStage = Math.min(currentStage + 1, SRS_INTERVALS.length);
         const daysToAdd = SRS_INTERVALS[currentStage] || 1;
         updates.reviewStage = nextStage;
         updates.nextReviewTime = now + (daysToAdd * 24 * 60 * 60 * 1000);
 
-        // 2. Mistake Pool Logic: Graduate after 5 correct
         if (item.isInMistakePool) {
             const newStreak = (item.mistakeStreak || 0) + 1;
             updates.mistakeStreak = newStreak;
             if (newStreak >= 5) {
-                updates.isInMistakePool = false; // Graduate from mistake pool
+                updates.isInMistakePool = false; 
                 updates.mistakeStreak = 0;
             }
         }
     } else {
-        // 1. SRS Logic: Reset to 0
         updates.failureCount = (item.failureCount || 0) + 1;
         updates.reviewStage = 0;
         updates.nextReviewTime = now;
-
-        // 2. Mistake Pool Logic: Enter pool / Reset streak
         updates.isInMistakePool = true;
         updates.mistakeStreak = 0;
     }
@@ -272,6 +285,7 @@ class DBService {
       let score = 0;
       if (s.streetName === target) score = 100;
       else if (s.streetName.includes(target)) score = 80;
+      else if (s.companyName && s.companyName.includes(target)) score = 50; 
       
       let correctedTarget = target;
       for (const [key, variants] of Object.entries(HOMOPHONES)) {
@@ -291,7 +305,7 @@ class DBService {
       return { ...s, score };
     });
 
-    return scored.filter(s => s.score > 60).sort((a,b) => b.score - a.score).slice(0, 5);
+    return scored.filter(s => s.score > 40).sort((a,b) => b.score - a.score).slice(0, 5);
   }
 
   async batchRecognize(text: string): Promise<{original: string, match: StreetRecord | null}[]> {

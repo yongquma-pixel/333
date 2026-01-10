@@ -12,8 +12,9 @@ import {
   Loader2, 
   Database,
   Zap,
-  CalendarClock,
+  BookOpen,
   XCircle,
+  ChevronRight
 } from 'lucide-react';
 import { db } from '../services/db';
 
@@ -25,7 +26,6 @@ export const HomePage: React.FC = () => {
   const [mistakePoolCount, setMistakePoolCount] = useState(0);
   
   useEffect(() => {
-    // 1. Random Greeting
     const greetings = [
       "气昂昂的分拣员，太帅了！",
       "朝气蓬勃的分拣员，加油！",
@@ -35,7 +35,6 @@ export const HomePage: React.FC = () => {
     ];
     setGreeting(greetings[Math.floor(Math.random() * greetings.length)]);
 
-    // 2. Weather
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(async (pos) => {
         try {
@@ -49,7 +48,6 @@ export const HomePage: React.FC = () => {
       });
     }
 
-    // 3. Storage Stats & Due Reviews
     db.init().then(() => {
       db.getStorageStats().then(setStorageStats);
       db.getDueStreets().then(res => setDueReviewCount(res.length));
@@ -81,7 +79,7 @@ export const HomePage: React.FC = () => {
             )}
             <div className="flex items-center space-x-1 bg-gray-100 px-2 py-1 rounded-lg">
               <Database className="w-3 h-3 text-gray-500" />
-              <span className="text-xs">余 {storageStats.remainingGB} GB</span>
+              <span className="text-xs">数据余量充足</span>
             </div>
           </div>
         </div>
@@ -90,9 +88,8 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* NEW LAYOUT: Hero Section for Core Function */}
       <div className="space-y-4">
-        {/* Core Function: Voice Search (Hero Card) */}
+        {/* Core Function: Voice Search */}
         <Link to="/search" className="block w-full bg-gradient-to-r from-brand-600 to-brand-500 p-6 rounded-3xl shadow-lg shadow-brand-200 text-white relative overflow-hidden group active:scale-95 transition-transform">
           <div className="relative z-10 flex flex-col items-center text-center">
             <div className="bg-white/20 p-4 rounded-full mb-3 backdrop-blur-sm group-hover:scale-110 transition-transform duration-300 shadow-inner">
@@ -101,23 +98,32 @@ export const HomePage: React.FC = () => {
             <h2 className="text-2xl font-black tracking-tight mb-1">语音查路区</h2>
             <div className="flex items-center space-x-2 mt-2">
                <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-medium backdrop-blur-sm border border-white/10 flex items-center">
-                 <Zap className="w-3 h-3 mr-1 fill-yellow-300 text-yellow-300" /> 
-                 秒级识别
-               </span>
-               <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-medium backdrop-blur-sm border border-white/10">
-                 批量模式
+                 <Zap className="w-3 h-3 mr-1 fill-yellow-300 text-yellow-300" /> 秒级识别
                </span>
             </div>
           </div>
-          {/* Decorative Elements */}
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
           <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
+        </Link>
+
+        {/* New Function: Library (Memory View) */}
+        <Link to="/library" className="block w-full bg-indigo-600 p-5 rounded-2xl shadow-lg shadow-indigo-100 text-white active:scale-95 transition-transform">
+           <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="bg-white/20 p-3 rounded-xl">
+                  <BookOpen className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black">路区图谱</h3>
+                  <p className="text-white/70 text-xs">按路区分类，背诵更高效</p>
+                </div>
+              </div>
+              <ChevronRight className="w-6 h-6 opacity-50" />
+           </div>
         </Link>
 
         {/* Secondary Actions Grid */}
         <div className="grid grid-cols-2 gap-4">
-          {/* Daily Quiz */}
           <Link to="/quiz" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-32 relative overflow-hidden group active:scale-95 transition-transform">
              <div className="relative z-10">
                <div className="flex justify-between items-start">
@@ -135,7 +141,6 @@ export const HomePage: React.FC = () => {
              </div>
           </Link>
 
-          {/* Mistake Pool (Dedicated Hardcore Mode) */}
           <Link to="/quiz?mode=mistake" className="bg-red-50 p-5 rounded-2xl shadow-sm border border-red-100 flex flex-col justify-between h-32 relative overflow-hidden group active:scale-95 transition-transform">
              <div className="relative z-10">
                <div className="flex justify-between items-start">
@@ -148,8 +153,8 @@ export const HomePage: React.FC = () => {
                        </span>
                   )}
                </div>
-               <span className="font-bold text-gray-800 block text-lg">强化错题本</span>
-               <span className="text-red-600 text-xs font-medium">连续5次正确才能移除</span>
+               <span className="font-bold text-gray-800 block text-lg">错题本</span>
+               <span className="text-red-600 text-xs font-medium">重点攻克</span>
              </div>
           </Link>
         </div>

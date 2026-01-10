@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Search, Save, X, Download, Upload, AlertTriangle, Mail, Filter, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Search, Save, X, Download, Upload, AlertTriangle, Mail, Filter, ChevronDown, FileSpreadsheet, Building2 } from 'lucide-react';
 import { db } from '../services/db';
 import { StreetRecord } from '../types';
 import * as XLSX from 'xlsx';
@@ -15,7 +15,7 @@ export const ManagePage: React.FC = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [formData, setFormData] = useState({ streetName: '', routeArea: '', pinyin: '' });
+  const [formData, setFormData] = useState({ streetName: '', routeArea: '', companyName: '', pinyin: '' });
   const [emailAddress, setEmailAddress] = useState('');
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export const ManagePage: React.FC = () => {
 
   const handleStreetNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    let generatedPinyin = formData.pinyin;
+    let generatedPinyin = '';
     if (val) {
       try {
         generatedPinyin = pinyin(val, { toneType: 'none', type: 'string' }).replace(/\s/g, '');
@@ -52,8 +52,15 @@ export const ManagePage: React.FC = () => {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.streetName || !formData.routeArea) return;
-    await db.add(formData);
-    setFormData({ streetName: '', routeArea: '', pinyin: '' });
+    
+    const finalPinyin = formData.pinyin || pinyin(formData.streetName, { toneType: 'none', type: 'string' }).replace(/\s/g, '');
+    
+    await db.add({
+      ...formData,
+      companyName: formData.companyName.trim(), // 可以为空
+      pinyin: finalPinyin
+    });
+    setFormData({ streetName: '', routeArea: '', companyName: '', pinyin: '' });
     setIsAdding(false);
     loadData();
   };
@@ -63,9 +70,7 @@ export const ManagePage: React.FC = () => {
       const dataToExport = streets.map(s => ({
         "道路名称": s.streetName,
         "所属路区": s.routeArea,
-        "拼音": s.pinyin || '',
-        "错误次数": s.failureCount || 0,
-        "创建时间": new Date(s.createdAt).toLocaleDateString()
+        "公司名称": s.companyName || ""
       }));
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(dataToExport);
@@ -97,15 +102,23 @@ export const ManagePage: React.FC = () => {
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wsname]);
-        const records = data.map((row: any) => ({
-          streetName: row['道路名称'],
-          routeArea: row['所属路区'],
-          pinyin: row['拼音'] || ''
-        })).filter(r => r.streetName && r.routeArea);
         
-        if (records.length === 0) return alert("格式错误或无数据");
+        const records = data.map((row: any) => {
+          const streetName = row['道路名称'] || '';
+          const routeArea = row['所属路区'] || '';
+          const companyName = row['公司名称'] || ''; // 允许为空
+          if (!streetName || !routeArea) return null;
+          
+          return {
+            streetName,
+            routeArea,
+            companyName,
+            pinyin: pinyin(streetName, { toneType: 'none', type: 'string' }).replace(/\s/g, '')
+          };
+        }).filter(r => r !== null) as any[];
         
-        // Use Merge (Upsert) logic instead of AddMany
+        if (records.length === 0) return alert("格式错误或无有效数据（请检查表头是否包含：道路名称、所属路区）");
+        
         const { added, updated } = await db.mergeStreets(records);
         
         alert(`导入完成！\n✅ 新增: ${added} 条\n🔄 更新: ${updated} 条`);
@@ -115,13 +128,13 @@ export const ManagePage: React.FC = () => {
       }
     };
     reader.readAsBinaryString(file);
+    e.target.value = '';
   };
 
-  // Get Unique Route Areas for filter
   const uniqueAreas = Array.from(new Set(streets.map(s => s.routeArea))).sort();
 
   const filteredStreets = streets.filter(s => {
-    const matchesFilter = s.streetName.includes(filter) || s.routeArea.includes(filter);
+    const matchesFilter = s.streetName.includes(filter) || s.routeArea.includes(filter) || (s.companyName && s.companyName.includes(filter));
     const matchesArea = selectedArea ? s.routeArea === selectedArea : true;
     return matchesFilter && matchesArea;
   });
@@ -130,123 +143,124 @@ export const ManagePage: React.FC = () => {
     <div className="space-y-4 relative min-h-full">
       <input type="file" accept=".xlsx, .xls" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
       
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-800">题库管理 ({streets.length})</h2>
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+        <h2 className="text-xl font-black text-gray-800 mb-4 flex items-center">
+           <FileSpreadsheet className="w-6 h-6 mr-2 text-brand-600" />
+           题库管理 ({streets.length})
+        </h2>
+        <div className="flex space-x-3">
+          <button onClick={() => setIsAdding(true)} className="flex-[2] bg-brand-600 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center space-x-2 shadow-lg shadow-brand-100 active:scale-95 transition-all">
+            <Plus className="w-5 h-5" />
+            <span>手动添加</span>
+          </button>
+          <button onClick={() => fileInputRef.current?.click()} className="flex-1 bg-blue-50 text-blue-700 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all border border-blue-100">
+            <Upload className="w-4 h-4" />
+            <span>导入Excel</span>
+          </button>
+        </div>
+        <button onClick={handleExport} className="w-full mt-3 bg-green-50 text-green-700 py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 border border-green-100">
+          <Download className="w-4 h-4" />
+          <span>导出备份 (道路/路区/公司)</span>
+        </button>
       </div>
-
-      <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex space-x-3">
-        <button onClick={handleExport} className="flex-1 flex items-center justify-center space-x-2 bg-green-50 text-green-700 py-2 rounded-lg text-sm font-medium hover:bg-green-100"><Download className="w-4 h-4" /><span>导出备份</span></button>
-        <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center space-x-2 bg-blue-50 text-blue-700 py-2 rounded-lg text-sm font-medium hover:bg-blue-100"><Upload className="w-4 h-4" /><span>导入Excel</span></button>
-      </div>
-
-      {/* Floating Action Button (FAB) for Adding */}
-      <button 
-        onClick={() => setIsAdding(true)} 
-        className="fixed right-6 bottom-24 w-14 h-14 bg-brand-600 text-white rounded-full flex items-center justify-center shadow-xl z-30 hover:bg-brand-700 active:scale-90 transition-all"
-      >
-        <Plus className="w-8 h-8" />
-      </button>
 
       {/* Add Modal */}
       {isAdding && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">录入新路区</h3><button onClick={() => setIsAdding(false)}><X className="w-6 h-6 text-gray-400" /></button></div>
-            <form onSubmit={handleAdd} className="space-y-4">
-              <input type="text" required className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-brand-500" placeholder="道路名称" value={formData.streetName} onChange={handleStreetNameChange} />
-              <input type="text" required className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-brand-500" placeholder="所属路区" value={formData.routeArea} onChange={e => setFormData({...formData, routeArea: e.target.value})} />
-              <input type="text" className="w-full border rounded-lg p-2.5 bg-gray-50" placeholder="自动生成拼音" value={formData.pinyin} onChange={e => setFormData({...formData, pinyin: e.target.value})} />
-              <button type="submit" className="w-full bg-brand-600 text-white py-3 rounded-xl font-bold flex justify-center items-center space-x-2"><Save className="w-5 h-5" /><span>保存</span></button>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-fade-in-up overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-gray-800">新增数据</h3>
+              <button onClick={() => setIsAdding(false)} className="p-2 bg-gray-100 rounded-full">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <form onSubmit={handleAdd} className="space-y-5">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-400 ml-1">道路/小区名称 *</label>
+                <input 
+                  type="text" 
+                  required 
+                  autoFocus
+                  className="w-full border-2 border-gray-100 rounded-2xl p-4 outline-none focus:border-brand-500 transition-colors text-lg font-bold" 
+                  placeholder="例如：文三路" 
+                  value={formData.streetName} 
+                  onChange={handleStreetNameChange} 
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-400 ml-1">所属路区 *</label>
+                <input 
+                  type="text" 
+                  required 
+                  className="w-full border-2 border-gray-100 rounded-2xl p-4 outline-none focus:border-brand-500 transition-colors text-lg font-bold" 
+                  placeholder="例如：西湖1区" 
+                  value={formData.routeArea} 
+                  onChange={e => setFormData({...formData, routeArea: e.target.value})} 
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-400 ml-1">公司/网点名称 (可选)</label>
+                <input 
+                  type="text" 
+                  className="w-full border-2 border-gray-100 rounded-2xl p-4 outline-none focus:border-brand-500 transition-colors text-lg font-bold" 
+                  placeholder="例如：顺丰文三分部" 
+                  value={formData.companyName} 
+                  onChange={e => setFormData({...formData, companyName: e.target.value})} 
+                />
+              </div>
+              <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">拼音预览</p>
+                <p className="text-brand-600 font-mono text-sm">{formData.pinyin || '等待输入...'}</p>
+              </div>
+              <button type="submit" className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black text-lg flex justify-center items-center space-x-2 shadow-xl shadow-brand-100 active:scale-95 transition-all">
+                <Save className="w-6 h-6" />
+                <span>立即保存</span>
+              </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Delete Modal */}
-      {deleteId && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl text-center">
-            <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-4" />
-            <h3 className="text-lg font-bold mb-2">确认删除</h3>
-            <p className="text-gray-500 text-sm mb-6">操作不可撤销</p>
-            <div className="flex space-x-3">
-              <button onClick={() => setDeleteId(null)} className="flex-1 py-2.5 rounded-xl border">取消</button>
-              <button onClick={confirmDelete} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-bold">删除</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Email Modal */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-             <Mail className="w-10 h-10 text-brand-600 mx-auto mb-4" />
-             <h3 className="text-lg font-bold text-center mb-2">发送备份</h3>
-             <input type="email" placeholder="邮箱地址" className="w-full border p-3 rounded-xl mb-4" value={emailAddress} onChange={e => setEmailAddress(e.target.value)} />
-             <div className="flex space-x-3">
-               <button onClick={() => setShowEmailModal(false)} className="flex-1 py-2 border rounded-xl">取消</button>
-               <button onClick={handleSendEmail} className="flex-1 py-2 bg-brand-600 text-white rounded-xl">发送</button>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Search & Filter */}
-      <div className="space-y-3">
-        <div className="flex space-x-2">
-          {/* Text Search */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="搜索道路..." 
-              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-brand-500 outline-none" 
-              value={filter} 
-              onChange={e => setFilter(e.target.value)} 
-            />
-          </div>
-          
-          {/* Dropdown Filter */}
-          <div className="relative w-1/3 min-w-[120px]">
-            <div className="absolute left-2.5 top-3 pointer-events-none">
-               <Filter className="w-4 h-4 text-brand-600" />
-            </div>
-            <select
-              value={selectedArea || ''}
-              onChange={(e) => setSelectedArea(e.target.value || null)}
-              className="w-full appearance-none bg-white border border-gray-200 rounded-xl py-2.5 pl-8 pr-8 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-brand-500 truncate"
-            >
-              <option value="">全部路区</option>
-              {uniqueAreas.map(area => (
-                <option key={area} value={area}>{area} ({streets.filter(s => s.routeArea === area).length})</option>
-              ))}
-            </select>
-            <div className="absolute right-2.5 top-3 pointer-events-none">
-               <ChevronDown className="w-4 h-4 text-gray-400" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-2 pb-20">
-        <div className="flex justify-between items-center text-xs text-gray-400 px-1">
-            <span>显示 {filteredStreets.length} 条</span>
-            {selectedArea && <span className="text-brand-600 font-bold">已筛选: {selectedArea}</span>}
-        </div>
+      {/* List Display */}
+      <div className="space-y-2 pb-24">
         {filteredStreets.map(item => (
-          <div key={item.id} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center">
-            <div><div className="font-bold text-gray-800">{item.streetName}</div><div className="text-xs text-brand-600 bg-brand-50 inline-block px-2 py-0.5 rounded mt-1">{item.routeArea}</div></div>
-            <button onClick={() => setDeleteId(item.id)} className="p-2 text-gray-300 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
+          <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center animate-fade-in-up">
+            <div className="flex-1 pr-4">
+              <div className="font-black text-gray-800 text-lg">{item.streetName}</div>
+              <div className="flex flex-wrap items-center mt-1 gap-2">
+                <span className="text-[10px] text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full font-bold border border-brand-100">{item.routeArea}</span>
+                {item.companyName && (
+                  <span className="text-[10px] text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-bold border border-green-100 flex items-center">
+                    <Building2 className="w-3 h-3 mr-1" />
+                    {item.companyName}
+                  </span>
+                )}
+              </div>
+              <div className="text-[9px] text-gray-300 mt-1 font-mono uppercase">PINYIN: {item.pinyin}</div>
+            </div>
+            <button onClick={() => setDeleteId(item.id)} className="p-3 text-gray-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+              <Trash2 className="w-5 h-5" />
+            </button>
           </div>
         ))}
-        {filteredStreets.length === 0 && (
-            <div className="text-center py-10 text-gray-400">
-               <p className="mb-2">没有找到数据</p>
-               {selectedArea && <button onClick={() => setSelectedArea(null)} className="text-brand-600 text-sm font-bold">清除筛选</button>}
-            </div>
-        )}
       </div>
+
+      {/* Delete Modal */}
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl text-center">
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-10 h-10 text-red-500" />
+            </div>
+            <h3 className="text-xl font-black mb-2">确认删除？</h3>
+            <p className="text-gray-500 text-sm mb-8">此操作将永久移除该数据，无法找回。</p>
+            <div className="flex space-x-3">
+              <button onClick={() => setDeleteId(null)} className="flex-1 py-3.5 rounded-2xl border-2 border-gray-100 font-bold text-gray-500">取消</button>
+              <button onClick={confirmDelete} className="flex-1 py-3.5 rounded-2xl bg-red-500 text-white font-bold shadow-lg shadow-red-100">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
