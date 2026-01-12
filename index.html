@@ -1,62 +1,36 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>快递员助手 (测试版)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/react-router-dom@6.22.3/dist/umd/react-router-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基础排查</title>
+    <style>
+        body {
+            background-color: #ff0000; /* 鲜艳的红色 */
+            color: white;
+            font-size: 24px;
+            font-family: sans-serif;
+            text-align: center;
+            padding-top: 100px;
+            margin: 0;
+        }
+        .box {
+            background: black;
+            padding: 20px;
+            margin: 20px;
+            border-radius: 10px;
+        }
+    </style>
 </head>
-<body class="bg-blue-50">
-    <div id="root"></div>
-
-    <script type="text/babel">
-        // 1. 设置 React 简写
-        const { useState, useEffect } = React;
-        const { HashRouter, Routes, Route, Link } = ReactRouterDOM;
-
-        // 2. 简单的页面组件
-        const Home = () => (
-            <div className="p-6 text-center space-y-6">
-                <h1 className="text-3xl font-bold text-blue-600">🎉 终于成功了！</h1>
-                <p className="text-gray-600">如果你看到这个页面，说明你的 GitHub Pages 配置是完美的。</p>
-                <div className="p-4 bg-white rounded-xl shadow-md">
-                    <p>之前的白屏是因为图标库(Lucide)加载失败。</p>
-                </div>
-                <Link to="/test" className="block w-full bg-blue-500 text-white py-3 rounded-xl font-bold">
-                    点击测试跳转
-                </Link>
-            </div>
-        );
-
-        const TestPage = () => (
-            <div className="p-6 text-center">
-                <h2 className="text-2xl font-bold text-green-600">跳转功能也正常</h2>
-                <br/>
-                <Link to="/" className="text-blue-500 underline">返回首页</Link>
-            </div>
-        );
-
-        // 3. 主程序
-        const App = () => {
-            return (
-                <HashRouter>
-                    <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl">
-                        <Routes>
-                            <Route path="/" element={<Home />} />
-                            <Route path="/test" element={<TestPage />} />
-                        </Routes>
-                    </div>
-                </HashRouter>
-            );
-        };
-
-        // 4. 启动渲染
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+<body>
+    <div class="box">
+        <h1>能看到我吗？</h1>
+        <p>如果你看到这个大红色的页面，说明：</p>
+        <p>✅ 你的 GitHub 链接是对的</p>
+        <p>✅ 你的手机网速没问题</p>
+    </div>
+    <div class="box">
+        <p>如果是白屏，那就是缓存问题！</p>
+    </div>
 </body>
 </html>
