@@ -1,216 +1,276 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>路区通 - 极速版</title>
-    
-    <script>
-        window.onerror = function(msg, url, line) {
-            document.getElementById('error-log').innerHTML += 
-                '<p style="color:red">❌ Error: ' + msg + '<br>Line: ' + line + '</p>';
-            document.getElementById('loading').style.display = 'none';
-        };
-    </script>
-
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>路区通 - 极速纯净版</title>
     <style>
-        body { font-family: -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: #9ca3af; }
-        .nav-item.active { color: #2563eb; }
-        /* 加载动画 */
-        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* 这里写最基础的 CSS，不依赖任何外部库 */
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+        /* 顶部导航 */
+        .header {
+            background-color: #2563eb;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        /* 底部导航栏 */
+        .tab-bar {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background: white;
+            display: flex;
+            border-top: 1px solid #ddd;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            font-size: 14px;
+            color: #888;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+        .tab-btn.active {
+            color: #2563eb;
+            font-weight: bold;
+            background-color: #f8faff;
+        }
+        /* 页面内容区域 */
+        .page {
+            display: none; /* 默认隐藏所有页面 */
+            padding: 20px;
+            padding-bottom: 80px; /* 给底部导航留位置 */
+            min-height: 80vh;
+        }
+        .page.active {
+            display: block; /* 激活的页面显示 */
+        }
+        
+        /* 表单和列表样式 */
+        .input-group { margin-bottom: 15px; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+        }
+        input:focus { border-color: #2563eb; }
+        button.btn-primary {
+            width: 100%;
+            padding: 12px;
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .card {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card .title { font-size: 16px; font-weight: bold; }
+        .card .tag { 
+            background: #eff6ff; 
+            color: #2563eb; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            font-size: 14px; 
+            font-weight: bold;
+        }
+        .empty-tip { text-align: center; color: #999; margin-top: 50px; }
+        .delete-btn { color: #ff4d4f; border: none; background: none; padding: 5px; margin-left: 10px; }
     </style>
-
-    <script src="https://cdn.staticfile.org/react/18.2.0/umd/react.production.min.js"></script>
-    <script src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-    <script src="https://cdn.staticfile.org/react-router-dom/6.3.0/react-router-dom.production.min.js"></script>
-    <script src="https://cdn.staticfile.org/babel-standalone/7.22.20/babel.min.js"></script>
-    <script src="https://cdn.staticfile.org/idb/7.1.1/idb.min.js"></script>
 </head>
-<body class="bg-gray-50">
-    
-    <div id="loading" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center">
-        <div class="spinner"></div>
-        <p class="text-gray-500 font-bold">正在启动路区通...</p>
-        <div id="error-log" class="mt-4 text-xs text-left px-4"></div>
+<body>
+
+    <div class="header">📦 路区通 (纯净版)</div>
+
+    <div id="page-search" class="page active">
+        <div class="input-group">
+            <input type="text" id="search-input" placeholder="🔍 输入路名查询..." oninput="handleSearch()">
+        </div>
+        <div id="search-results">
+            <div class="empty-tip">👇 在上方输入路名开始搜索</div>
+        </div>
     </div>
 
-    <div id="root"></div>
+    <div id="page-manage" class="page">
+        <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+            <h3 style="margin-top:0">➕ 添加新路区</h3>
+            <div class="input-group">
+                <input type="text" id="add-name" placeholder="街道 / 小区名称">
+            </div>
+            <div class="input-group">
+                <input type="text" id="add-area" placeholder="所属路区 (如 A-01)">
+            </div>
+            <button class="btn-primary" onclick="addStreet()">保存</button>
+        </div>
 
-    <script type="text/babel">
-        // 1. 初始化 React
-        const { useState, useEffect, useMemo } = React;
-        const { HashRouter, Routes, Route, Link, useLocation, useNavigate, Navigate } = ReactRouterDOM;
+        <h3 style="color:#666; font-size: 14px;">📚 所有数据 (<span id="total-count">0</span>)</h3>
+        <div id="manage-list">
+            </div>
+    </div>
 
-        // 2. 数据库服务 (简版)
-        const DB_NAME = 'courier_app_v1';
-        const dbService = {
-            async init() {
-                this.db = await idb.openDB(DB_NAME, 1, {
-                    upgrade(db) { if (!db.objectStoreNames.contains('streets')) db.createObjectStore('streets', { keyPath: 'id' }); }
-                });
-            },
-            async getAll() { await this.init(); return this.db.getAll('streets'); },
-            async add(data) { 
-                await this.init(); 
-                await this.db.add('streets', { ...data, id: Date.now().toString() }); 
-            },
-            async delete(id) { await this.init(); await this.db.delete('streets', id); },
-            async search(kw) {
-                await this.init();
-                const all = await this.db.getAll('streets');
-                if (!kw) return [];
-                return all.filter(s => s.streetName.includes(kw) || s.routeArea.includes(kw));
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('search', this)">🔍 查路区</button>
+        <button class="tab-btn" onclick="switchTab('manage', this)">⚙️ 管理</button>
+    </div>
+
+    <script>
+        // --- 核心逻辑 (纯 JavaScript) ---
+
+        // 1. 数据存储 key
+        const STORAGE_KEY = 'courier_data_v1';
+
+        // 2. 获取所有数据
+        function getData() {
+            const data = localStorage.getItem(STORAGE_KEY);
+            return data ? JSON.parse(data) : [];
+        }
+
+        // 3. 保存数据
+        function saveData(list) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+            renderManageList(); // 刷新管理列表
+            updateCount();
+        }
+
+        // 4. 添加路区
+        function addStreet() {
+            const nameInput = document.getElementById('add-name');
+            const areaInput = document.getElementById('add-area');
+            const name = nameInput.value.trim();
+            const area = areaInput.value.trim();
+
+            if (!name || !area) {
+                alert('请填写完整！');
+                return;
             }
-        };
 
-        // 3. 布局组件
-        const Layout = ({ children }) => {
-            const location = useLocation();
-            // 关闭加载动画
-            useEffect(() => { document.getElementById('loading').style.display = 'none'; }, []);
+            const list = getData();
+            // 添加到数组开头
+            list.unshift({ id: Date.now(), name: name, area: area });
+            saveData(list);
 
-            return (
-                <div className="min-h-screen flex flex-col max-w-md mx-auto bg-white shadow-xl">
-                    <header className="bg-blue-600 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-10">
-                        <span className="text-lg font-bold flex items-center">📦 路区通</span>
-                        <span className="text-xs bg-blue-700 px-2 py-1 rounded">V2.0 极速版</span>
-                    </header>
-                    <main className="flex-1 overflow-y-auto p-4 pb-20 bg-gray-50">
-                        {children}
-                    </main>
-                    <nav className="fixed bottom-0 w-full max-w-md bg-white border-t flex justify-around py-3 pb-6 z-20 shadow-up">
-                        <Link to="/" className={`nav-item ${location.pathname === '/' ? 'active' : ''}`}>
-                            <span className="text-xl">🏠</span>
-                            <span>首页</span>
-                        </Link>
-                        <Link to="/search" className={`nav-item ${location.pathname === '/search' ? 'active' : ''}`}>
-                            <span className="text-xl">🔍</span>
-                            <span>查询</span>
-                        </Link>
-                        <Link to="/manage" className={`nav-item ${location.pathname === '/manage' ? 'active' : ''}`}>
-                            <span className="text-xl">⚙️</span>
-                            <span>管理</span>
-                        </Link>
-                    </nav>
-                </div>
-            );
-        };
+            // 清空输入框
+            nameInput.value = '';
+            areaInput.value = '';
+            alert('保存成功！');
+        }
 
-        // 4. 页面组件
-        const HomePage = () => {
-            const [count, setCount] = useState(0);
-            useEffect(() => { dbService.getAll().then(res => setCount(res.length)); }, []);
+        // 5. 删除路区
+        function deleteStreet(id) {
+            if (!confirm('确定删除这条吗？')) return;
+            let list = getData();
+            list = list.filter(item => item.id !== id);
+            saveData(list);
+            handleSearch(); // 如果正在搜索，也要刷新搜索结果
+        }
 
-            return (
-                <div className="space-y-4 animate-fade-in">
-                    <div className="bg-blue-100 p-6 rounded-2xl text-blue-800">
-                        <h1 className="text-2xl font-bold mb-2">👋 你好，分拣员</h1>
-                        <p className="text-sm opacity-80">当前已收录 <b>{count}</b> 条路区信息</p>
+        // 6. 渲染管理列表
+        function renderManageList() {
+            const list = getData();
+            const container = document.getElementById('manage-list');
+            if (list.length === 0) {
+                container.innerHTML = '<div class="empty-tip">暂无数据，请上方添加</div>';
+                return;
+            }
+            container.innerHTML = list.map(item => `
+                <div class="card">
+                    <div>
+                        <div class="title">${item.name}</div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <Link to="/search" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-2 active:scale-95 transition-transform">
-                            <span className="text-3xl">🎤</span>
-                            <span className="font-bold text-gray-700">查路区</span>
-                        </Link>
-                        <Link to="/manage" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-2 active:scale-95 transition-transform">
-                            <span className="text-3xl">📝</span>
-                            <span className="font-bold text-gray-700">录入数据</span>
-                        </Link>
-                    </div>
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-                        <h3 className="font-bold text-gray-500 text-sm mb-2">📌 使用贴士</h3>
-                        <p className="text-xs text-gray-400">点击“管理”可以手动添加路区，或者导入Excel。数据均保存在本地手机中。</p>
+                    <div style="display:flex; align-items:center;">
+                        <span class="tag">${item.area}</span>
+                        <button class="delete-btn" onclick="deleteStreet(${item.id})">✕</button>
                     </div>
                 </div>
-            );
-        };
+            `).join('');
+        }
 
-        const ManagePage = () => {
-            const [list, setList] = useState([]);
-            const [form, setForm] = useState({ streetName: '', routeArea: '' });
+        // 7. 处理搜索
+        function handleSearch() {
+            const keyword = document.getElementById('search-input').value.trim().toLowerCase();
+            const container = document.getElementById('search-results');
             
-            const load = () => dbService.getAll().then(setList);
-            useEffect(() => { load(); }, []);
+            if (!keyword) {
+                container.innerHTML = '<div class="empty-tip">👇 在上方输入路名开始搜索</div>';
+                return;
+            }
 
-            const handleAdd = async () => {
-                if (!form.streetName || !form.routeArea) return alert("请填写完整！");
-                await dbService.add(form);
-                setForm({ streetName: '', routeArea: '' });
-                load();
-            };
-
-            return (
-                <div className="space-y-6">
-                    <div className="bg-white p-5 rounded-2xl shadow-sm">
-                        <h2 className="font-bold mb-4">➕ 添加新路区</h2>
-                        <div className="space-y-3">
-                            <input className="w-full p-3 border rounded-xl bg-gray-50" placeholder="街道/小区名 (如: 幸福路)" value={form.streetName} onChange={e => setForm({...form, streetName: e.target.value})} />
-                            <input className="w-full p-3 border rounded-xl bg-gray-50" placeholder="路区号 (如: A-01)" value={form.routeArea} onChange={e => setForm({...form, routeArea: e.target.value})} />
-                            <button onClick={handleAdd} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg active:bg-blue-700">确认保存</button>
-                        </div>
-                    </div>
-                    <div className="space-y-3">
-                        <h3 className="font-bold text-gray-500 ml-1">📚 已收录 ({list.length})</h3>
-                        {list.map(item => (
-                            <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center border border-gray-100">
-                                <div>
-                                    <div className="font-bold text-gray-800">{item.streetName}</div>
-                                    <div className="text-xs text-blue-500 font-mono mt-1">{item.routeArea}</div>
-                                </div>
-                                <button onClick={async () => { if(confirm('确认删除?')) { await dbService.delete(item.id); load(); } }} className="text-gray-300 px-2">✕</button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+            const list = getData();
+            const results = list.filter(item => 
+                item.name.toLowerCase().includes(keyword) || 
+                item.area.toLowerCase().includes(keyword)
             );
-        };
 
-        const SearchPage = () => {
-            const [val, setVal] = useState('');
-            const [res, setRes] = useState([]);
+            if (results.length === 0) {
+                container.innerHTML = '<div class="empty-tip">未找到相关结果</div>';
+                return;
+            }
+
+            container.innerHTML = results.map(item => `
+                <div class="card">
+                    <div class="title">${item.name}</div>
+                    <span class="tag" style="font-size: 18px;">${item.area}</span>
+                </div>
+            `).join('');
+        }
+
+        // 8. 切换页面 (Tab)
+        function switchTab(pageId, btn) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+            // 取消所有按钮高亮
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             
-            const handleSearch = (txt) => {
-                setVal(txt);
-                dbService.search(txt).then(setRes);
-            };
+            // 显示目标页面
+            document.getElementById('page-' + pageId).classList.add('active');
+            // 高亮目标按钮
+            btn.classList.add('active');
 
-            return (
-                <div className="space-y-4">
-                    <div className="sticky top-0 bg-gray-50 pt-2 pb-2 z-10">
-                        <input className="w-full p-4 rounded-2xl shadow-sm border-none outline-none ring-2 ring-blue-100 focus:ring-blue-500 transition-all" placeholder="输入路名快速查找..." value={val} onChange={e => handleSearch(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                        {res.map(item => (
-                            <div key={item.id} className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-blue-500 flex justify-between items-center">
-                                <span className="font-bold text-lg">{item.streetName}</span>
-                                <span className="text-xl font-black text-blue-600">{item.routeArea}</span>
-                            </div>
-                        ))}
-                        {val && res.length === 0 && <div className="text-center text-gray-400 py-10">未找到相关结果</div>}
-                    </div>
-                </div>
-            );
-        };
+            // 如果切换到管理页，刷新一下列表
+            if(pageId === 'manage') {
+                renderManageList();
+                updateCount();
+            }
+        }
 
-        // 5. 路由入口
-        const App = () => (
-            <HashRouter>
-                <Layout>
-                    <Routes>
-                        <Route path="/" element={<HomePage />} />
-                        <Route path="/search" element={<SearchPage />} />
-                        <Route path="/manage" element={<ManagePage />} />
-                        <Route path="*" element={<Navigate to="/" />} />
-                    </Routes>
-                </Layout>
-            </HashRouter>
-        );
+        function updateCount() {
+            document.getElementById('total-count').innerText = getData().length;
+        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        // 初始化
+        window.onload = function() {
+            renderManageList();
+            updateCount();
+        }
     </script>
 </body>
 </html>
