@@ -56,6 +56,12 @@ class DBService {
     return this.db!.getAll('streets');
   }
 
+  async clearAll(): Promise<void> {
+    if (!this.db) await this.init();
+    await this.db!.clear('streets');
+    this.cachedStreets = null;
+  }
+
   async getDueStreets(): Promise<StreetRecord[]> {
     const all = await this.getAll();
     const now = Date.now();
