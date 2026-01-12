@@ -1,51 +1,654 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
+<head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="https://picsum.photos/32/32" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>路区通 - 快递员助手</title>
+    
+    <!-- 1. 样式依赖 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script>
       tailwind.config = {
         theme: {
           extend: {
             colors: {
-              brand: {
-                50: '#eff6ff',
-                100: '#dbeafe',
-                500: '#3b82f6',
-                600: '#2563eb',
-                700: '#1d4ed8',
-              }
+              brand: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' }
             }
           }
         }
       }
     </script>
-    <script type="importmap">
+    <style>
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fade-in-left {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .animate-fade-in-up { animation: fade-in-up 0.4s ease-out forwards; }
+        .animate-fade-in-left { animation: fade-in-left 0.4s ease-out forwards; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+
+    <!-- 2. 外部库 CDN (UMD版本) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/react-router-dom@6.22.3/dist/umd/react-router-dom.production.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+    <script src="https://unpkg.com/idb@8.0.0/build/iife/index-min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/pinyin-pro@3.19.3/dist/index.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
-    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?deps=react@18.2.0,react-dom@18.2.0",
-    "lucide-react": "https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0",
-    "idb": "https://esm.sh/idb@8.0.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs",
-    "pinyin-pro": "https://esm.sh/pinyin-pro@3.19.3",
-    "leaflet": "https://esm.sh/leaflet@1.9.4",
-    "react-leaflet": "https://esm.sh/react-leaflet@4.2.1?deps=leaflet@1.9.4,react@18.2.0,react-dom@18.2.0"
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.12.0",
+    "xlsx": "https://esm.sh/xlsx@^0.18.5",
+    "idb": "https://esm.sh/idb@^8.0.3",
+    "pinyin-pro": "https://esm.sh/pinyin-pro@^3.27.0"
   }
 }
 </script>
-  </head>
-  <body>
+</head>
+<body class="bg-gray-50">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-    
-  </body>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+        const { HashRouter, Routes, Route, Link, useLocation, useNavigate, useSearchParams, Navigate } = ReactRouterDOM;
+        const { 
+            Map, Home, Settings, BrainCircuit, Mic, MicOff, Search, MapPin, 
+            AlertCircle, Layers, Type, Trash2, Wand2, Activity, Loader2, 
+            Building2, Plus, Save, X, Download, Upload, AlertTriangle, 
+            FileSpreadsheet, BookOpen, ChevronRight, CheckCircle, XCircle, 
+            RefreshCw, Trophy, Settings2, Edit3, ArrowRight, CalendarClock, Flame
+        } = LucideReact;
+
+        // --- 数据库服务 ---
+        const DB_NAME = 'courier_assistant_db';
+        const DB_VERSION = 10;
+        const SRS_INTERVALS = [0.5, 1, 3, 7, 15, 30];
+
+        const getRawPinyin = (text) => {
+            try {
+                return pinyinPro.pinyin(text, { toneType: 'none', type: 'string' }).replace(/\s/g, '');
+            } catch (e) { return text; }
+        };
+
+        const levenshtein = (a, b) => {
+            const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+            for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+            for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+            for (let i = 1; i <= a.length; i++) {
+                for (let j = 1; j <= b.length; j++) {
+                    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                    matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
+                }
+            }
+            return matrix[a.length][b.length];
+        };
+
+        const dbService = {
+            db: null,
+            cachedStreets: null,
+            async init() {
+                if (this.db) return;
+                this.db = await idb.openDB(DB_NAME, DB_VERSION, {
+                    upgrade(db) {
+                        if (!db.objectStoreNames.contains('streets')) {
+                            db.createObjectStore('streets', { keyPath: 'id' });
+                        }
+                    },
+                });
+            },
+            async getAll() {
+                await this.init();
+                return this.db.getAll('streets');
+            },
+            async add(record) {
+                await this.init();
+                const newRecord = {
+                    ...record,
+                    id: Math.random().toString(36).substr(2, 9),
+                    failureCount: 0,
+                    createdAt: Date.now(),
+                    reviewStage: 0,
+                    nextReviewTime: 0,
+                    isInMistakePool: false,
+                    mistakeStreak: 0
+                };
+                await this.db.add('streets', newRecord);
+                this.cachedStreets = null;
+            },
+            async delete(id) {
+                await this.init();
+                await this.db.delete('streets', id);
+                this.cachedStreets = null;
+            },
+            async mergeStreets(records) {
+                await this.init();
+                const all = await this.getAll();
+                let added = 0, updated = 0;
+                for (const r of records) {
+                    const existing = all.find(s => s.streetName === r.streetName);
+                    if (existing) {
+                        await this.db.put('streets', { ...existing, ...r });
+                        updated++;
+                    } else {
+                        await this.add(r);
+                        added++;
+                    }
+                }
+                this.cachedStreets = null;
+                return { added, updated };
+            },
+            async processQuizResult(id, isCorrect) {
+                await this.init();
+                const item = await this.db.get('streets', id);
+                if (!item) return;
+                const now = Date.now();
+                let updates = { lastReviewTime: now };
+                if (isCorrect) {
+                    const currentStage = item.reviewStage || 0;
+                    const nextStage = Math.min(currentStage + 1, SRS_INTERVALS.length);
+                    const daysToAdd = SRS_INTERVALS[currentStage] || 1;
+                    updates.reviewStage = nextStage;
+                    updates.nextReviewTime = now + (daysToAdd * 24 * 60 * 60 * 1000);
+                    if (item.isInMistakePool) {
+                        updates.mistakeStreak = (item.mistakeStreak || 0) + 1;
+                        if (updates.mistakeStreak >= 5) { updates.isInMistakePool = false; updates.mistakeStreak = 0; }
+                    }
+                } else {
+                    updates.failureCount = (item.failureCount || 0) + 1;
+                    updates.reviewStage = 0;
+                    updates.nextReviewTime = now;
+                    updates.isInMistakePool = true;
+                    updates.mistakeStreak = 0;
+                }
+                await this.db.put('streets', { ...item, ...updates });
+            },
+            async search(query) {
+                const all = await this.getAll();
+                const target = query.trim();
+                if (!target) return [];
+                const targetPinyin = getRawPinyin(target);
+                return all.map(s => {
+                    let score = 0;
+                    if (s.streetName === target) score = 100;
+                    else if (s.streetName.includes(target)) score = 80;
+                    else if (s.companyName && s.companyName.includes(target)) score = 50;
+                    const sPinyin = s.pinyin || getRawPinyin(s.streetName);
+                    const similarity = 1 - (levenshtein(sPinyin, targetPinyin) / Math.max(sPinyin.length, targetPinyin.length));
+                    if (similarity > 0.8) score = Math.max(score, 70 + (similarity * 20));
+                    return { ...s, score };
+                }).filter(s => s.score > 40).sort((a,b) => b.score - a.score).slice(0, 5);
+            },
+            async batchRecognize(text) {
+                if (!this.cachedStreets) this.cachedStreets = await this.getAll();
+                const all = this.cachedStreets;
+                const results = [];
+                let i = 0;
+                while(i < text.length) {
+                    let bestMatch = null, bestLen = 0;
+                    for (let len = 10; len >= 2; len--) {
+                        if (i + len > text.length) continue;
+                        const chunk = text.substr(i, len);
+                        const match = all.find(s => s.streetName === chunk);
+                        if (match) { bestMatch = match; bestLen = len; break; }
+                    }
+                    if (bestMatch) { results.push({ original: text.substr(i, bestLen), match: bestMatch }); i += bestLen; }
+                    else i++;
+                }
+                return results;
+            }
+        };
+
+        const openMap = (record) => {
+            const keyword = encodeURIComponent(record.streetName);
+            const url = record.lat && record.lng 
+                ? `https://uri.amap.com/marker?position=${record.lng},${record.lat}&name=${keyword}&src=courier_assistant`
+                : `https://uri.amap.com/search?keyword=${keyword}&src=courier_assistant`;
+            window.open(url, '_blank');
+        };
+
+        // --- 布局组件 ---
+        const Layout = ({ children }) => {
+            const location = useLocation();
+            const isActive = (path) => location.pathname === path;
+            return (
+                <div className="min-h-screen bg-gray-50 flex flex-col max-w-md mx-auto shadow-2xl overflow-hidden border-x border-gray-200">
+                    <header className="bg-brand-600 text-white p-4 shadow-md z-10 sticky top-0">
+                        <div className="flex justify-between items-center">
+                            <Link to="/" className="flex items-center space-x-2">
+                                <Map className="w-6 h-6" />
+                                <span className="text-xl font-bold tracking-wide">路区通</span>
+                            </Link>
+                            <span className="text-xs bg-brand-700 px-2 py-1 rounded">快递助手</span>
+                        </div>
+                    </header>
+                    <main className="flex-1 overflow-y-auto p-4 pb-24">
+                        {children}
+                    </main>
+                    <nav className="bg-white border-t border-gray-200 fixed bottom-0 w-full max-w-md flex justify-around py-3 pb-safe z-20">
+                        <Link to="/" className={`flex flex-col items-center space-y-1 ${isActive('/') ? 'text-brand-600' : 'text-gray-400'}`}>
+                            <Home className="w-6 h-6" />
+                            <span className="text-xs">首页</span>
+                        </Link>
+                        <Link to="/manage" className={`flex flex-col items-center space-y-1 ${isActive('/manage') ? 'text-brand-600' : 'text-gray-400'}`}>
+                            <Settings className="w-6 h-6" />
+                            <span className="text-xs">管理</span>
+                        </Link>
+                    </nav>
+                </div>
+            );
+        };
+
+        // --- 首页组件 ---
+        const HomePage = () => {
+            const [weather, setWeather] = useState(null);
+            const [greeting, setGreeting] = useState("你好，分拣员");
+            const [counts, setCounts] = useState({ review: 0, mistake: 0 });
+
+            useEffect(() => {
+                const greetings = ["气昂昂的分拣员，太帅了！", "朝气蓬勃的分拣员，加油！", "又是效率满满的一天！", "你是路区最靓的仔！", "精准分拣，使命必达！"];
+                setGreeting(greetings[Math.floor(Math.random() * greetings.length)]);
+                
+                dbService.init().then(async () => {
+                    const all = await dbService.getAll();
+                    const now = Date.now();
+                    const due = all.filter(s => (s.nextReviewTime && s.nextReviewTime <= now) || (s.failureCount > 0 && !s.nextReviewTime)).length;
+                    const mist = all.filter(s => s.isInMistakePool).length;
+                    setCounts({ review: due, mistake: mist });
+                });
+
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(async (pos) => {
+                        try {
+                            const { latitude, longitude } = pos.coords;
+                            const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`);
+                            const data = await res.json();
+                            setWeather({ temp: data.current_weather.temperature, code: data.current_weather.weathercode });
+                        } catch (e) {}
+                    });
+                }
+            }, []);
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
+                        <h1 className="text-2xl font-black text-brand-600 mb-2 relative z-10">{greeting}</h1>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500 relative z-10">
+                            {weather ? (
+                                <div className="flex items-center space-x-1 bg-blue-50 px-2 py-1 rounded-lg">
+                                    <span className="font-bold">{weather.temp}°C</span>
+                                </div>
+                            ) : <Loader2 className="w-4 h-4 animate-spin" />}
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <Link to="/search" className="block w-full bg-gradient-to-r from-brand-600 to-brand-500 p-6 rounded-3xl shadow-lg text-white text-center active:scale-95 transition-transform">
+                            <Mic className="w-10 h-10 mx-auto mb-2" />
+                            <h2 className="text-2xl font-black">语音查路区</h2>
+                        </Link>
+
+                        <Link to="/library" className="block w-full bg-indigo-600 p-5 rounded-2xl text-white flex justify-between items-center active:scale-95 transition-transform">
+                            <div className="flex items-center space-x-4">
+                                <BookOpen className="w-6 h-6" />
+                                <div><h3 className="text-lg font-black">路区图谱</h3><p className="text-white/70 text-xs">按路区分类背诵</p></div>
+                            </div>
+                            <ChevronRight className="w-6 h-6 opacity-50" />
+                        </Link>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <Link to="/quiz" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 h-32 flex flex-col justify-between active:scale-95 transition-transform">
+                                <div className="flex justify-between">
+                                    <BrainCircuit className="w-6 h-6 text-blue-600" />
+                                    {counts.review > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">{counts.review}</span>}
+                                </div>
+                                <div><span className="font-bold text-gray-800 block text-lg">每日一练</span><span className="text-gray-400 text-xs">复习旧知</span></div>
+                            </Link>
+                            <Link to="/quiz?mode=mistake" className="bg-red-50 p-5 rounded-2xl shadow-sm border border-red-100 h-32 flex flex-col justify-between active:scale-95 transition-transform">
+                                <div className="flex justify-between">
+                                    <XCircle className="w-6 h-6 text-red-600" />
+                                    {counts.mistake > 0 && <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full">{counts.mistake}</span>}
+                                </div>
+                                <div><span className="font-bold text-gray-800 block text-lg">错题本</span><span className="text-red-600 text-xs">难点攻克</span></div>
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 搜索页面 ---
+        const SearchPage = () => {
+            const [mode, setMode] = useState('single');
+            const [isListening, setIsListening] = useState(false);
+            const [query, setQuery] = useState('');
+            const [results, setResults] = useState([]);
+            const [batchList, setBatchList] = useState([]);
+            const [interim, setInterim] = useState('');
+            const recognitionRef = useRef(null);
+
+            useEffect(() => {
+                if ('webkitSpeechRecognition' in window) {
+                    const SpeechRecognition = window.webkitSpeechRecognition;
+                    recognitionRef.current = new SpeechRecognition();
+                    recognitionRef.current.lang = 'zh-CN';
+                    recognitionRef.current.interimResults = true;
+                    recognitionRef.current.onresult = (event) => {
+                        let final = '', inter = '';
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            if (event.results[i].isFinal) final += event.results[i][0].transcript;
+                            else inter += event.results[i][0].transcript;
+                        }
+                        if (mode === 'single') {
+                            const text = (final || inter).replace(/[。，？！]/g, '');
+                            setQuery(text);
+                            dbService.search(text).then(setResults);
+                        } else {
+                            if (final) {
+                                dbService.batchRecognize(final).then(res => {
+                                    setBatchList(prev => [...prev, ...res.map(r => ({ id: Math.random(), text: r.original, match: r.match }))]);
+                                });
+                                setInterim('');
+                            } else setInterim(inter);
+                        }
+                    };
+                    recognitionRef.current.onstart = () => setIsListening(true);
+                    recognitionRef.current.onend = () => { setIsListening(false); setInterim(''); };
+                }
+            }, [mode]);
+
+            const toggle = () => {
+                if (isListening) recognitionRef.current.stop();
+                else {
+                    recognitionRef.current.continuous = (mode === 'batch');
+                    recognitionRef.current.start();
+                }
+            };
+
+            return (
+                <div className="h-full flex flex-col space-y-4">
+                    <div className="bg-gray-200 p-1 rounded-xl flex text-sm shrink-0">
+                        <button onClick={() => setMode('single')} className={`flex-1 py-2 rounded-lg ${mode === 'single' ? 'bg-white text-brand-600' : 'text-gray-500'}`}>单条</button>
+                        <button onClick={() => setMode('batch')} className={`flex-1 py-2 rounded-lg ${mode === 'batch' ? 'bg-white text-brand-600' : 'text-gray-500'}`}>批量</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-3">
+                        {mode === 'single' ? (
+                            <>
+                                <input type="text" className="w-full p-3 rounded-xl border border-gray-300 outline-none" placeholder="输入路名..." value={query} onChange={e => { setQuery(e.target.value); dbService.search(e.target.value).then(setResults); }} />
+                                {results.map(item => (
+                                    <div key={item.id} className="bg-white p-4 rounded-2xl border-l-4 border-brand-500 shadow-sm flex justify-between items-center animate-fade-in-up">
+                                        <div className="flex items-center space-x-3">
+                                            <button onClick={() => openMap(item)} className="bg-brand-50 p-3 rounded-xl text-brand-600"><MapPin className="w-5 h-5" /></button>
+                                            <div><h3 className="font-black">{item.streetName}</h3>{item.companyName && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full">{item.companyName}</span>}</div>
+                                        </div>
+                                        <span className="text-2xl font-black text-brand-600">{item.routeArea}</span>
+                                    </div>
+                                ))}
+                            </>
+                        ) : (
+                            <div className="space-y-2">
+                                {batchList.map(item => (
+                                    <div key={item.id} className="bg-white p-3 rounded-xl flex justify-between items-center">
+                                        <div className="flex items-center space-x-2">
+                                            {item.match && <button onClick={() => openMap(item.match)}><MapPin className="w-4 h-4 text-brand-600" /></button>}
+                                            <span className="font-bold">{item.match ? item.match.streetName : item.text}</span>
+                                        </div>
+                                        {item.match ? <span className="bg-brand-600 text-white px-2 py-1 rounded-lg text-xs font-bold">{item.match.routeArea}</span> : <span className="text-gray-300 text-xs italic">未匹配</span>}
+                                    </div>
+                                ))}
+                                {interim && <div className="text-brand-500 italic animate-pulse">{interim}...</div>}
+                            </div>
+                        )}
+                    </div>
+                    <div className="bg-white p-6 rounded-3xl text-center shadow-lg">
+                        <button onClick={toggle} className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center transition-all ${isListening ? 'bg-red-500 ring-4 ring-red-100' : 'bg-brand-600 ring-4 ring-blue-100'}`}>
+                            {isListening ? <MicOff className="text-white" /> : <Mic className="text-white w-8 h-8" />}
+                        </button>
+                        <p className="mt-3 text-sm text-gray-400">{isListening ? "正在聆听..." : "点击开始"}</p>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 管理页面 ---
+        const ManagePage = () => {
+            const [streets, setStreets] = useState([]);
+            const [isAdding, setIsAdding] = useState(false);
+            const [formData, setFormData] = useState({ streetName: '', routeArea: '', companyName: '' });
+            const fileInputRef = useRef(null);
+
+            const load = () => dbService.getAll().then(setStreets);
+            useEffect(load, []);
+
+            const add = async (e) => {
+                e.preventDefault();
+                await dbService.add({ ...formData, pinyin: getRawPinyin(formData.streetName) });
+                setFormData({ streetName: '', routeArea: '', companyName: '' });
+                setIsAdding(false);
+                load();
+            };
+
+            const handleFile = (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    const bstr = evt.target.result;
+                    const wb = XLSX.read(bstr, { type: 'binary' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const data = XLSX.utils.sheet_to_json(ws);
+                    const records = data.map(row => ({
+                        streetName: row['道路名称'], routeArea: row['所属路区'], companyName: row['公司名称'] || '',
+                        pinyin: getRawPinyin(row['道路名称'])
+                    })).filter(r => r.streetName && r.routeArea);
+                    await dbService.mergeStreets(records);
+                    load();
+                };
+                reader.readAsBinaryString(file);
+            };
+
+            return (
+                <div className="space-y-4">
+                    <input type="file" ref={fileInputRef} onChange={handleFile} className="hidden" />
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                        <h2 className="text-xl font-black mb-4 flex items-center"><FileSpreadsheet className="w-6 h-6 mr-2 text-brand-600" />题库管理 ({streets.length})</h2>
+                        <div className="flex space-x-2">
+                            <button onClick={() => setIsAdding(true)} className="flex-1 bg-brand-600 text-white py-2 rounded-xl font-bold">手动添加</button>
+                            <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-blue-50 text-blue-700 py-2 rounded-xl font-bold">导入Excel</button>
+                        </div>
+                    </div>
+
+                    {isAdding && (
+                        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+                            <form onSubmit={add} className="bg-white rounded-3xl w-full p-6 space-y-4 animate-fade-in-up">
+                                <div className="flex justify-between items-center"><h3>新增数据</h3><button type="button" onClick={() => setIsAdding(false)}><X /></button></div>
+                                <input required className="w-full p-3 border rounded-xl" placeholder="路名/小区..." value={formData.streetName} onChange={e => setFormData({...formData, streetName: e.target.value})} />
+                                <input required className="w-full p-3 border rounded-xl" placeholder="所属路区..." value={formData.routeArea} onChange={e => setFormData({...formData, routeArea: e.target.value})} />
+                                <input className="w-full p-3 border rounded-xl" placeholder="公司名称 (可选)..." value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} />
+                                <button className="w-full bg-brand-600 text-white py-3 rounded-xl font-bold">保存</button>
+                            </form>
+                        </div>
+                    )}
+
+                    <div className="space-y-2">
+                        {streets.map(item => (
+                            <div key={item.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                                <div><div className="font-black text-lg">{item.streetName}</div><div className="text-xs text-brand-600 font-bold">{item.routeArea}</div></div>
+                                <button onClick={async () => { await dbService.delete(item.id); load(); }} className="p-2 text-red-200 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 练习页面 ---
+        const QuizPage = () => {
+            const [searchParams] = useSearchParams();
+            const navigate = useNavigate();
+            const mode = searchParams.get('mode');
+            const [gameState, setGameState] = useState('start');
+            const [questions, setQuestions] = useState([]);
+            const [cur, setCur] = useState(0);
+            const [score, setScore] = useState(0);
+            const [ans, setAns] = useState(null);
+            const [isDone, setIsDone] = useState(false);
+
+            const start = async () => {
+                const all = await dbService.getAll();
+                let selected = [];
+                if (mode === 'mistake') selected = all.filter(s => s.isInMistakePool);
+                else {
+                    const now = Date.now();
+                    selected = all.filter(s => (s.nextReviewTime && s.nextReviewTime <= now) || (s.failureCount > 0 && !s.nextReviewTime));
+                    if (selected.length === 0) selected = all.sort(() => 0.5 - Math.random()).slice(0, 20);
+                }
+                
+                if (selected.length === 0) return alert("无可练题目");
+                
+                const areas = Array.from(new Set(all.map(s => s.routeArea)));
+                const quiz = selected.map(q => {
+                    const opts = [q.routeArea, ...areas.filter(a => a !== q.routeArea).sort(() => 0.5 - Math.random()).slice(0, 3)].sort(() => 0.5 - Math.random());
+                    return { q, opts };
+                });
+                setQuestions(quiz);
+                setCur(0); setScore(0); setGameState('playing'); setIsDone(false); setAns(null);
+            };
+
+            const handle = async (opt) => {
+                if (isDone) return;
+                setAns(opt); setIsDone(true);
+                const correct = opt === questions[cur].q.routeArea;
+                if (correct) setScore(s => s + 1);
+                await dbService.processQuizResult(questions[cur].q.id, correct);
+                setTimeout(() => {
+                    if (cur < questions.length - 1) { setCur(c => c + 1); setAns(null); setIsDone(false); }
+                    else setGameState('result');
+                }, 800);
+            };
+
+            if (gameState === 'start') return (
+                <div className="h-full flex flex-col items-center justify-center p-6 space-y-8 animate-fade-in-up">
+                    <Trophy className="w-20 h-20 text-brand-600 bg-brand-50 p-4 rounded-full" />
+                    <h2 className="text-2xl font-black">{mode === 'mistake' ? '错题本模式' : '每日练习'}</h2>
+                    <button onClick={start} className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black shadow-xl">开始</button>
+                </div>
+            );
+
+            if (gameState === 'result') return (
+                <div className="h-full flex flex-col items-center justify-center p-6 space-y-6">
+                    <div className="text-6xl font-black text-brand-600">{Math.round((score/questions.length)*100)}%</div>
+                    <p>答对 {score} / {questions.length}</p>
+                    <button onClick={() => setGameState('start')} className="w-full bg-brand-600 text-white py-4 rounded-2xl font-black">再练一次</button>
+                    <button onClick={() => navigate('/')} className="text-gray-400">返回首页</button>
+                </div>
+            );
+
+            const q = questions[cur];
+            return (
+                <div className="h-full flex flex-col p-4 animate-fade-in">
+                    <div className="w-full bg-gray-100 h-2 rounded-full mb-8 overflow-hidden">
+                        <div className="bg-brand-500 h-full transition-all" style={{ width: `${((cur+1)/questions.length)*100}%` }} />
+                    </div>
+                    <div className="flex-1 space-y-8">
+                        <div>
+                            <div className="text-sm text-gray-400 font-bold mb-1">属于哪个路区？</div>
+                            <div className="text-4xl font-black text-gray-800">{q.q.streetName}</div>
+                            {q.q.companyName && <div className="mt-2 text-green-600 bg-green-50 px-3 py-1 rounded-lg w-fit text-sm font-bold">{q.q.companyName}</div>}
+                        </div>
+                        <div className="grid gap-3">
+                            {q.opts.map((o, i) => (
+                                <button key={i} disabled={isDone} onClick={() => handle(o)} className={`w-full p-5 rounded-2xl border-2 font-black text-xl text-left flex justify-between items-center transition-all ${isDone ? (o === q.q.routeArea ? 'bg-green-50 border-green-500 text-green-700' : (o === ans ? 'bg-red-50 border-red-500 text-red-700' : 'opacity-40')) : 'bg-white hover:border-brand-500'}`}>
+                                    {o}
+                                    {isDone && o === q.q.routeArea && <CheckCircle />}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 图谱页面 ---
+        const LibraryPage = () => {
+            const [streets, setStreets] = useState([]);
+            const [search, setSearch] = useState('');
+            const [active, setActive] = useState(null);
+
+            useEffect(() => { dbService.getAll().then(setStreets); }, []);
+
+            const grouped = useMemo(() => {
+                return streets.reduce((acc, s) => {
+                    if (!acc[s.routeArea]) acc[s.routeArea] = [];
+                    acc[s.routeArea].push(s);
+                    return acc;
+                }, {});
+            }, [streets]);
+
+            const areas = Object.keys(grouped).sort();
+
+            return (
+                <div className="space-y-4">
+                    <input className="w-full p-4 rounded-2xl border-2 focus:border-brand-500 outline-none font-bold shadow-sm" placeholder="搜索路名、区域或公司..." value={search} onChange={e => setSearch(e.target.value)} />
+                    <div className="flex overflow-x-auto space-x-2 no-scrollbar pb-2">
+                        <button onClick={() => setActive(null)} className={`px-4 py-1.5 rounded-full whitespace-nowrap text-xs font-black border-2 ${!active ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white text-gray-500 border-gray-100'}`}>全部</button>
+                        {areas.map(a => <button key={a} onClick={() => setActive(a)} className={`px-4 py-1.5 rounded-full whitespace-nowrap text-xs font-black border-2 ${active === a ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white text-gray-500 border-gray-100'}`}>{a}</button>)}
+                    </div>
+                    <div className="space-y-6">
+                        {areas.filter(a => !active || a === active).map(a => (
+                            <div key={a} className="space-y-2">
+                                <h3 className="font-black text-lg flex items-center"><div className="w-1.5 h-5 bg-brand-600 rounded-full mr-2" />{a}</h3>
+                                <div className="grid gap-2">
+                                    {grouped[a].filter(s => s.streetName.includes(search) || (s.companyName && s.companyName.includes(search))).map(s => (
+                                        <div key={s.id} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm border border-gray-50">
+                                            <div className="flex items-center space-x-3">
+                                                <button onClick={() => openMap(s)} className="p-2 bg-brand-50 text-brand-600 rounded-lg"><MapPin className="w-4 h-4" /></button>
+                                                <div><div className="font-black text-gray-800">{s.streetName}</div>{s.companyName && <div className="text-[10px] text-green-600 font-bold">{s.companyName}</div>}</div>
+                                            </div>
+                                            <div className="text-[10px] text-gray-300 font-mono uppercase">{s.pinyin}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 主程序入口 ---
+        const App = () => {
+            return (
+                <HashRouter>
+                    <Layout>
+                        <Routes>
+                            <Route path="/" element={<HomePage />} />
+                            <Route path="/manage" element={<ManagePage />} />
+                            <Route path="/quiz" element={<QuizPage />} />
+                            <Route path="/search" element={<SearchPage />} />
+                            <Route path="/library" element={<LibraryPage />} />
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                    </Layout>
+                </HashRouter>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
 </html>
